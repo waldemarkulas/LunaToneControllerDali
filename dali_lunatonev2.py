@@ -73,6 +73,7 @@ class DaliController:
         self.port = port
         self.psu = psu
         self.driver = None
+        self.article_number = None
 
     async def connect(self, apply_settings: bool | None = None) -> None:
         """
@@ -93,6 +94,16 @@ class DaliController:
             bus_power=(self.psu == "on"),
         )
         await self.driver.connect(apply_settings=apply_settings)
+
+        info = getattr(self.driver._protocol, "device_info", None)
+        self.article_number = getattr(info, "article_num", None)
+
+    def unsupported_article(self) -> bool:
+        """True, gdy adapter ma numer artykułu spoza SUPPORTED_ARTICLE_NUMBERS."""
+        return (
+            self.article_number is not None
+            and self.article_number not in SUPPORTED_ARTICLE_NUMBERS
+        )
 
     async def close(self) -> None:
         transport = getattr(self.driver, "_transport", None)
@@ -262,10 +273,18 @@ async def run(args, out=print) -> int:
     try:
         await ctrl.connect(apply_settings=False if read_only else None)
 
+        if ctrl.unsupported_article():
+            out(
+                f"UWAGA: nieznany numer artykułu {ctrl.article_number}. "
+                f"Znane: {', '.join(str(n) for n in sorted(SUPPORTED_ARTICLE_NUMBERS))}. "
+                "Sterowanie nie zostało sprawdzone na tym adapterze."
+            )
+
         if args.command == "status":
             status = await ctrl.line_status()
             out("=== STATUS ADAPTERA ===")
             out(f"Port           : {ctrl.port}")
+            out(f"Article nr     : {ctrl.article_number}")
             if status is None:
                 out("Bus voltage    : BRAK ODPOWIEDZI ADAPTERA")
             else:

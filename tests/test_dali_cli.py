@@ -9,6 +9,7 @@ import asyncio
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -36,12 +37,17 @@ class FakeDriver:
     bus_voltage_error = False
     connect_error = None
 
+    article_num = 24138215
+
     def __init__(self, uri, bus_power=False):
         self.uri = uri
         self.bus_power = bus_power
         self.connect_kwargs = None
         self.sent = []
         self._transport = None
+        self._protocol = SimpleNamespace(
+            device_info=SimpleNamespace(article_num=FakeDriver.article_num)
+        )
         FakeDriver.instances.append(self)
 
     async def connect(self, apply_settings=True):
@@ -62,6 +68,7 @@ def fake_driver(monkeypatch):
     FakeDriver.instances = []
     FakeDriver.bus_voltage_error = False
     FakeDriver.connect_error = None
+    FakeDriver.article_num = 24138215
     monkeypatch.setattr(app, "DriverLubaRs232", FakeDriver)
     return FakeDriver
 
@@ -171,6 +178,23 @@ def test_connection_error_returns_exit_code_1(fake_driver, capsys):
 
     assert code == 1
     assert "port not found" in capsys.readouterr().err
+
+
+def test_unknown_article_number_prints_warning(fake_driver):
+    fake_driver.article_num = 12345
+
+    code, lines = run_cli("--port", "COM4", "status")
+
+    assert code == 0
+    assert any("nieznany numer artykułu 12345" in line for line in lines)
+
+
+def test_known_article_number_has_no_warning(fake_driver):
+    code, lines = run_cli("--port", "COM4", "status")
+
+    assert code == 0
+    assert not any("UWAGA" in line for line in lines)
+    assert "Article nr     : 24138215" in lines
 
 
 def test_supported_article_numbers_are_whitelisted_in_driver():
