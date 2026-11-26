@@ -3,24 +3,24 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>DALI - sterowanie</title>
+<title>DALI - sterowanie | IPT_Lunatone_v1.0.0</title>
 <style>
   :root {
     --bg: #f4f6f8; --card: #ffffff; --text: #1d2630; --muted: #6b7785;
     --accent: #2563eb; --ok: #15803d; --err: #b91c1c; --border: #d5dce4;
-    --hover: #eef3fb;
+    --hover: #eef3fb; --warn: #b45309; --warn-bg: #fef3c7;
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
       --bg: #12171d; --card: #1b222b; --text: #e6ebf1; --muted: #8b97a6;
       --accent: #5b8def; --ok: #4ade80; --err: #f87171; --border: #2d3742;
-      --hover: #243040;
+      --hover: #243040; --warn: #fbbf24; --warn-bg: #3a2f12;
     }
   }
   :root[data-theme="dark"] {
     --bg: #12171d; --card: #1b222b; --text: #e6ebf1; --muted: #8b97a6;
     --accent: #5b8def; --ok: #4ade80; --err: #f87171; --border: #2d3742;
-    --hover: #243040;
+    --hover: #243040; --warn: #fbbf24; --warn-bg: #3a2f12;
   }
   * { box-sizing: border-box; }
   body {
@@ -29,6 +29,7 @@
   }
   main { max-width: 760px; margin: 0 auto; padding: 16px; }
   h1 { font-size: 20px; margin: 8px 0 4px; }
+  h2 { font-size: 15px; margin: 0 0 8px; }
   .muted { color: var(--muted); font-size: 13px; }
   .card {
     background: var(--card); border: 1px solid var(--border);
@@ -46,7 +47,7 @@
   button.primary:hover:not(:disabled) { background: var(--accent); filter: brightness(1.1); }
   .combo { position: relative; }
   label { display: block; font-weight: 600; margin-bottom: 6px; }
-  input[type=text], input[type=number], input[type=password] {
+  input[type=text], input[type=number], input[type=password], select {
     font: inherit; color: var(--text); background: var(--card);
     border: 1px solid var(--border); border-radius: 8px;
     padding: 10px 12px; width: 100%; min-height: 44px;
@@ -55,34 +56,42 @@
     position: absolute; left: 0; right: 0; top: 100%; z-index: 10;
     margin: 4px 0 0; padding: 4px 0; list-style: none;
     background: var(--card); border: 1px solid var(--border);
-    border-radius: 8px; max-height: 320px; overflow: auto;
+    border-radius: 8px; max-height: 340px; overflow: auto;
     box-shadow: 0 8px 24px rgba(0,0,0,.15);
   }
-  .list li { padding: 8px 12px; cursor: pointer; display: flex; justify-content: space-between; gap: 12px; }
+  .list li { padding: 8px 12px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; }
   .list li.active, .list li:hover { background: var(--hover); }
-  .list .group { color: var(--muted); font-size: 12px; }
+  .list .sub { color: var(--muted); font-size: 12px; }
   .list .empty { color: var(--muted); cursor: default; }
   .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
   .row > div:only-child { grid-column: 1 / -1; }
   .hint { margin-top: 6px; color: var(--muted); font-size: 13px; min-height: 18px; }
+  .field { margin-top: 12px; }
+  .warn {
+    margin-top: 12px; padding: 10px 12px; border-radius: 8px;
+    background: var(--warn-bg); color: var(--warn); font-size: 14px;
+  }
+  .warn label { display: flex; gap: 8px; align-items: center; font-weight: 600; margin: 0; }
+  .warn input { width: auto; min-height: auto; }
   .actions { margin-top: 14px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
   .badge { font-weight: 700; }
   .badge.ok { color: var(--ok); } .badge.err { color: var(--err); }
   pre {
     background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
     padding: 12px; margin: 10px 0 0; white-space: pre-wrap; word-break: break-word;
-    font: 13px/1.5 ui-monospace, Consolas, monospace; min-height: 60px;
+    font: 13px/1.5 ui-monospace, Consolas, monospace; min-height: 60px; max-height: 420px; overflow: auto;
   }
   .hidden { display: none !important; }
   .login { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .login input { flex: 1; min-width: 180px; }
+  .tag { font-size: 12px; color: var(--muted); }
   @media (max-width: 560px) { .row { grid-template-columns: 1fr; } }
 </style>
 </head>
 <body>
 <main>
   <h1>Sterowanie DALI</h1>
-  <div class="muted">Port: <span id="port">…</span></div>
+  <div class="muted">Wersja: <span id="version">IPT_Lunatone_v1.0.0</span> · Port: <span id="port">…</span></div>
 
   <section id="loginCard" class="card hidden">
     <label for="token">Token dostępu</label>
@@ -94,31 +103,61 @@
   </section>
 
   <section class="card">
+    <h2>Szybkie akcje</h2>
     <div class="quick">
       <button data-quick="status">Status</button>
       <button data-quick="psu-on">Zasilacz ON</button>
       <button data-quick="psu-off">Zasilacz OFF</button>
       <button data-quick="scan">Skan magistrali</button>
+      <button data-quick="device-id">ID adaptera</button>
     </div>
   </section>
 
   <section class="card">
+    <h2>Komenda</h2>
     <label for="cmd">Funkcja</label>
     <div class="combo">
       <input id="cmd" type="text" autocomplete="off"
-             placeholder="Wpisz np. lev, all, psu… (strzałki i Enter)">
+             placeholder="Wpisz np. lev, dapc, reset, memory… (strzałki i Enter)">
       <ul id="list" class="list hidden" role="listbox"></ul>
     </div>
     <div class="hint" id="cmdHint"></div>
 
+    <!-- pola dla prostych komend (przyciski) -->
     <div class="row">
       <div id="addrBox" class="hidden">
-        <label for="address">Adres oprawy (0–63)</label>
+        <label for="address" id="addrLabel">Adres oprawy (0–63)</label>
         <input id="address" type="number" min="0" max="63" step="1" inputmode="numeric">
       </div>
       <div id="valueBox" class="hidden">
         <label for="value" id="valueLabel">Wartość</label>
         <input id="value" type="number" min="0" max="254" step="1" inputmode="numeric">
+      </div>
+    </div>
+
+    <!-- pola dla dowolnej komendy z katalogu python-dali -->
+    <div id="genericBox" class="hidden">
+      <div class="row">
+        <div id="targetBox">
+          <label for="kind">Adresat</label>
+          <select id="kind">
+            <option value="short">Krótki adres (0–63)</option>
+            <option value="group">Grupa (0–15)</option>
+            <option value="broadcast">Broadcast (wszystkie)</option>
+          </select>
+        </div>
+        <div id="genAddrBox">
+          <label for="genAddress" id="genAddrLabel">Adres</label>
+          <input id="genAddress" type="number" min="0" max="63" step="1" inputmode="numeric">
+        </div>
+      </div>
+      <div id="paramsBox"></div>
+      <div id="varargsBox" class="field hidden">
+        <label for="varargs">Argumenty (po przecinku, opcjonalnie)</label>
+        <input id="varargs" type="text" placeholder="np. 1, 2">
+      </div>
+      <div id="dangerBox" class="warn hidden">
+        <label><input id="confirm" type="checkbox"> Potwierdzam: ta komenda zmienia trwale stan lub pamięć urządzenia.</label>
       </div>
     </div>
 
@@ -134,8 +173,8 @@
 (() => {
   const $ = (id) => document.getElementById(id);
   const TOKEN_KEY = "dali_token";
-  let commands = [];
-  let selected = null;
+  let items = [];            // komendy nazwane + katalog python-dali
+  let selected = null;       // wybrany element listy
   let activeIndex = -1;
   let filtered = [];
 
@@ -163,13 +202,31 @@
     return data;
   }
 
-  // --- lista funkcji z podpowiedziami ----------------------------------
+  // --- lista z podpowiedziami --------------------------------------------
+  function buildItems(data) {
+    const named = data.commands.map(c => ({
+      kind: "named", id: c.id, label: c.label, group: c.group, sub: c.group + " · " + c.id,
+      address: c.address, value: c.value, value_label: c.value_label, dangerous: false,
+    }));
+    const generic = data.catalog.map(e => ({
+      kind: "generic", id: e.id, label: e.name + " — " + e.label,
+      group: "DALI " + (e.family === "gear" ? "oprawa" : "urządzenie"),
+      sub: e.module + " · " + e.name,
+      entry: e, address: e.address, value: false, dangerous: e.dangerous,
+    }));
+    return [...named, ...generic];
+  }
+
   function matches(query) {
     const q = query.trim().toLowerCase();
-    if (!q) return commands;
-    return commands.filter(c =>
-      c.id.toLowerCase().includes(q) || c.label.toLowerCase().includes(q) || c.group.toLowerCase().includes(q)
-    );
+    if (!q) return items.slice(0, 200);
+    const out = [];
+    for (const it of items) {
+      const hay = (it.id + " " + it.label + " " + it.group + " " + it.sub).toLowerCase();
+      if (hay.includes(q)) out.push(it);
+      if (out.length >= 200) break;
+    }
+    return out;
   }
 
   function renderList() {
@@ -182,18 +239,17 @@
       li.textContent = "Brak pasujących funkcji";
       list.appendChild(li);
     }
-    filtered.forEach((c, i) => {
+    filtered.forEach((it, i) => {
       const li = document.createElement("li");
       li.setAttribute("role", "option");
-      li.dataset.index = i;
       if (i === activeIndex) li.classList.add("active");
       const name = document.createElement("span");
-      name.textContent = c.label;
-      const group = document.createElement("span");
-      group.className = "group";
-      group.textContent = c.group + " · " + c.id;
-      li.append(name, group);
-      li.addEventListener("mousedown", (e) => { e.preventDefault(); choose(c); });
+      name.textContent = it.label + (it.dangerous ? "  ⚠" : "");
+      const sub = document.createElement("span");
+      sub.className = "sub";
+      sub.textContent = it.sub;
+      li.append(name, sub);
+      li.addEventListener("mousedown", (e) => { e.preventDefault(); choose(it); });
       list.appendChild(li);
     });
     list.classList.remove("hidden");
@@ -204,33 +260,103 @@
     activeIndex = -1;
   }
 
-  function choose(cmd) {
-    selected = cmd;
-    $("cmd").value = cmd.label;
+  function choose(item) {
+    selected = item;
+    $("cmd").value = item.label;
     closeList();
     showFields();
   }
 
   function showFields() {
-    const c = selected;
-    $("addrBox").classList.toggle("hidden", !(c && c.address));
-    $("valueBox").classList.toggle("hidden", !(c && c.value));
-    if (c && c.value) $("valueLabel").textContent = c.value_label || "Wartość";
-    $("cmdHint").textContent = c
-      ? "Wybrano: " + c.id + (c.address ? " · wymaga adresu" : "") + (c.value ? " · wymaga wartości" : "")
+    const it = selected;
+    const named = it && it.kind === "named";
+    const generic = it && it.kind === "generic";
+
+    // proste komendy
+    $("addrBox").classList.toggle("hidden", !(named && it.address));
+    $("valueBox").classList.toggle("hidden", !(named && it.value));
+    if (named && it.address) {
+      $("addrLabel").textContent = it.address === "optional"
+        ? "Adres oprawy (0–63, opcjonalnie)" : "Adres oprawy (0–63)";
+    }
+    if (named && it.value) $("valueLabel").textContent = it.value_label || "Wartość";
+
+    // dowolna komenda z katalogu
+    $("genericBox").classList.toggle("hidden", !generic);
+    if (generic) renderGeneric(it.entry);
+
+    $("cmdHint").textContent = !it ? "" : generic
+      ? (it.dangerous ? "Komenda niebezpieczna: wymaga potwierdzenia." : "Komenda z python-dali.")
       : "";
     validate();
   }
 
-  function validate() {
-    let ok = !!selected;
-    if (selected && selected.address) {
-      const a = $("address").value;
-      ok = ok && a !== "" && Number(a) >= 0 && Number(a) <= 63 && Number.isInteger(Number(a));
+  function renderGeneric(entry) {
+    $("targetBox").classList.toggle("hidden", !entry.address);
+    if (!entry.address) $("kind").value = "short";
+    updateKind();
+
+    const box = $("paramsBox");
+    box.innerHTML = "";
+    entry.params.forEach((p, i) => {
+      const wrap = document.createElement("div");
+      wrap.className = "field";
+      const lab = document.createElement("label");
+      lab.textContent = p.name + (p.required ? "" : " (opcjonalnie)");
+      const inp = document.createElement("input");
+      inp.type = "text";
+      inp.id = "param" + i;
+      inp.dataset.required = p.required ? "1" : "";
+      inp.placeholder = p.default !== null && p.default !== undefined ? "domyślnie " + p.default : "";
+      inp.addEventListener("input", validate);
+      wrap.append(lab, inp);
+      box.appendChild(wrap);
+    });
+
+    $("varargsBox").classList.toggle("hidden", !entry.varargs);
+    $("dangerBox").classList.toggle("hidden", !entry.dangerous);
+    $("confirm").checked = false;
+  }
+
+  function updateKind() {
+    const kind = $("kind").value;
+    const needsNumber = kind === "short" || kind === "group";
+    $("genAddrBox").classList.toggle("hidden", !needsNumber);
+    if (kind === "group") {
+      $("genAddrLabel").textContent = "Numer grupy (0–15)";
+      $("genAddress").max = 15;
+    } else {
+      $("genAddrLabel").textContent = "Adres (0–63)";
+      $("genAddress").max = 63;
     }
-    if (selected && selected.value) {
-      const v = $("value").value;
-      ok = ok && v !== "" && Number(v) >= 0 && Number(v) <= 254 && Number.isInteger(Number(v));
+    validate();
+  }
+
+  function inRange(value, min, max) {
+    return value !== "" && Number.isInteger(Number(value)) && Number(value) >= min && Number(value) <= max;
+  }
+
+  function validate() {
+    const it = selected;
+    let ok = !!it;
+    if (it && it.kind === "named") {
+      if (it.address === true) ok = ok && inRange($("address").value, 0, 63);
+      if (it.address === "optional") {
+        ok = ok && ($("address").value === "" || inRange($("address").value, 0, 63));
+      }
+      if (it.value) ok = ok && inRange($("value").value, 0, 254);
+    }
+    if (it && it.kind === "generic") {
+      const e = it.entry;
+      if (e.address) {
+        const kind = $("kind").value;
+        if (kind === "short") ok = ok && inRange($("genAddress").value, 0, 63);
+        if (kind === "group") ok = ok && inRange($("genAddress").value, 0, 15);
+      }
+      document.querySelectorAll("#paramsBox input").forEach(inp => {
+        if (inp.dataset.required) ok = ok && inp.value.trim() !== "";
+      });
+      if (e.dangerous) ok = ok && $("confirm").checked;
     }
     $("send").disabled = !ok;
     return ok;
@@ -242,7 +368,7 @@
     renderList();
     showFields();
   });
-  $("cmd").addEventListener("focus", () => { renderList(); });
+  $("cmd").addEventListener("focus", () => renderList());
   $("cmd").addEventListener("blur", () => setTimeout(closeList, 100));
   $("cmd").addEventListener("keydown", (e) => {
     const open = !$("list").classList.contains("hidden");
@@ -266,44 +392,67 @@
     }
   });
 
-  ["address", "value"].forEach(id => $(id).addEventListener("input", validate));
+  ["address", "value", "genAddress", "varargs", "kind"].forEach(id => $(id).addEventListener("input", validate));
+  $("kind").addEventListener("change", updateKind);
+  $("confirm").addEventListener("change", validate);
 
   // --- wysyłanie --------------------------------------------------------
-  function setResult(ok, text, lines = []) {
+  function setResult(ok, lines) {
     const badge = $("status");
     badge.textContent = ok ? "OK" : "BŁĄD";
     badge.className = "badge " + (ok ? "ok" : "err");
-    $("output").textContent = [text, ...lines].filter(Boolean).join("\n");
+    $("output").textContent = lines.length ? lines.join("\n") : (ok ? "Gotowe." : "Błąd.");
   }
 
-  async function send(body) {
-    if (!body) return;
+  async function post(path, body) {
     $("send").disabled = true;
     $("status").textContent = "wykonuję…";
     $("status").className = "badge";
     try {
-      const data = await api("/api/run", { method: "POST", body: JSON.stringify(body) });
-      const lines = [...data.output, ...data.errors];
-      setResult(data.ok, "", lines);
-      if (!lines.length) $("output").textContent = data.ok ? "Gotowe." : "Błąd.";
+      const data = await api(path, { method: "POST", body: JSON.stringify(body) });
+      setResult(data.ok, [...data.output, ...data.errors]);
     } catch (e) {
-      if (e.message !== "unauthorized") setResult(false, e.message);
+      if (e.message !== "unauthorized") setResult(false, [e.message]);
       else $("status").textContent = "";
     } finally {
       validate();
     }
   }
 
+  function genericBody(it) {
+    const e = it.entry;
+    const body = { id: e.id, confirm: $("confirm").checked };
+    if (e.address) {
+      body.kind = $("kind").value;
+      if (body.kind !== "broadcast") body.address = Number($("genAddress").value);
+    }
+    const args = [];
+    document.querySelectorAll("#paramsBox input").forEach(inp => {
+      if (inp.value.trim() !== "") args.push(inp.value.trim());
+    });
+    if (e.varargs) {
+      $("varargs").value.split(",").map(s => s.trim()).filter(s => s !== "").forEach(s => args.push(s));
+    }
+    body.args = args;
+    return body;
+  }
+
   $("send").addEventListener("click", () => {
     if (!selected || !validate()) return;
+    if (selected.kind === "generic") {
+      post("/api/send", genericBody(selected));
+      return;
+    }
     const body = { command: selected.id };
-    if (selected.address) body.address = Number($("address").value);
+    if (selected.address === true || (selected.address === "optional" && $("address").value !== "")) {
+      body.address = Number($("address").value);
+    }
     if (selected.value) body.value = Number($("value").value);
-    send(body);
+    post("/api/run", body);
   });
 
   document.querySelectorAll("[data-quick]").forEach(btn => {
-    btn.addEventListener("click", () => send({ command: btn.dataset.quick }));
+    btn.addEventListener("click", () => post("/api/run", { command: btn.dataset.quick }));
   });
 
   // --- logowanie tokenem -------------------------------------------------
@@ -316,8 +465,9 @@
   async function init() {
     try {
       const data = await api("/api/commands");
-      commands = data.commands;
+      items = buildItems(data);
       $("port").textContent = data.port;
+      if (data.version) $("version").textContent = data.version;
       $("loginCard").classList.add("hidden");
     } catch (e) {
       if (e.message !== "unauthorized") $("output").textContent = "Nie udało się pobrać listy funkcji: " + e.message;

@@ -22,11 +22,13 @@ import io
 import os
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
+import dali_catalog
 import dali_lunatonev2 as dali
+from dali_version import APP_VERSION
 
 WEB_TOKEN = os.environ.get("DALI_WEB_TOKEN", "")
 INDEX_HTML = Path(__file__).resolve().parent / "web" / "index.html"
@@ -41,6 +43,10 @@ COMMANDS = [
      "address": False, "value": False},
     {"id": "scan", "label": "Skan magistrali (szukaj opraw)", "group": "Magistrala",
      "address": False, "value": False},
+    {"id": "device-id", "label": "ID: adapter (i oprawa, jeśli podasz adres)",
+     "group": "Identyfikacja", "address": "optional", "value": False},
+    {"id": "memory-scan", "label": "Skan banków pamięci oprawy", "group": "Identyfikacja",
+     "address": True, "value": False},
     {"id": "info", "label": "Informacje o oprawie", "group": "Oprawa",
      "address": True, "value": False},
     {"id": "groups", "label": "Grupy oprawy", "group": "Oprawa",
@@ -70,6 +76,15 @@ class RunRequest(BaseModel):
     value: int | None = None
 
 
+class SendRequest(BaseModel):
+    """Dowolna komenda z katalogu python-dali."""
+    id: str
+    kind: str | None = None          # short / group / broadcast
+    address: int | None = None
+    args: list[str | int] = []
+    confirm: bool = False
+
+
 def require_token(authorization: str | None = Header(default=None)) -> None:
     if not WEB_TOKEN:
         return
@@ -84,9 +99,11 @@ def build_argv(req: RunRequest) -> list[str]:
         raise HTTPException(status_code=400, detail=f"Nieznana komenda: {req.command}")
 
     argv = ["--port", dali.DEFAULT_PORT, req.command]
-    if spec["address"]:
+    if spec["address"] is True:
         if req.address is None:
             raise HTTPException(status_code=400, detail="Podaj adres oprawy (0–63)")
+        argv += ["--address", str(req.address)]
+    elif spec["address"] == "optional" and req.address is not None:
         argv += ["--address", str(req.address)]
     if spec["value"]:
         if req.value is None:
@@ -109,12 +126,13 @@ def parse_argv(argv: list[str]):
 
 @contextlib.asynccontextmanager
 async def lifespan(_app: FastAPI):
+    print(f"{APP_VERSION} - interfejs web")
     if not WEB_TOKEN:
         print("UWAGA: DALI_WEB_TOKEN nie ustawiony - API działa bez logowania.")
     yield
 
 
-app = FastAPI(title="LunaToneControllerDali", lifespan=lifespan)
+app = FastAPI(title=APP_VERSION, version=APP_VERSION, lifespan=lifespan)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -124,22 +142,54 @@ async def index():
 
 @app.get("/api/commands", dependencies=[Depends(require_token)])
 async def list_commands():
-    return {"commands": COMMANDS, "port": dali.DEFAULT_PORT}
+    return {
+        "commands": COMMANDS,
+        "catalog": dali_catalog.public_entries(),
+        "port": dali.DEFAULT_PORT,
+        "version": APP_VERSION,
+    }
 
 
-@app.post("/api/run", dependencies=[Depends(require_token)])
-async def run_command(req: RunRequest):
-    argv = build_argv(req)
+async def _execute(argv: list[str], command: str, request: Request):
     args = parse_argv(argv)
+    client = request.client.host if request.client else None
 
     out_lines: list[str] = []
     err_lines: list[str] = []
     async with _port_lock:
-        code = await dali.run(args, out=out_lines.append, err=err_lines.append)
+        code = await dali.run(
+            args, out=out_lines.append, err=err_lines.append,
+            source="web", client=client,
+        )
 
     return {
         "ok": code == 0,
-        "command": req.command,
+        "command": command,
         "output": out_lines,
         "errors": err_lines,
     }
+
+
+@app.post("/api/run", dependencies=[Depends(require_token)])
+async def run_command(req: RunRequest, request: Request):
+    argv = build_argv(req)
+    return await _execute(argv, req.command, request)
+
+
+@app.post("/api/send", dependencies=[Depends(require_token)])
+async def send_command(req: SendRequest, request: Request):
+    if req.id not in dali_catalog.CATALOG:
+        raise HTTPException(status_code=400, detail=f"Nieznana komenda: {req.id}")
+
+    argv = ["--port", dali.DEFAULT_PORT, "cmd", f"--id={req.id}"]
+    if req.kind:
+        argv.append(f"--kind={req.kind}")
+    if req.address is not None:
+        argv.append(f"--address={req.address}")
+    for value in req.args:
+        if str(value).strip() != "":
+            argv.append(f"--arg={value}")
+    if req.confirm:
+        argv.append("--confirm")
+
+    return await _execute(argv, "cmd", request)

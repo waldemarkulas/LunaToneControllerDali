@@ -118,6 +118,10 @@ Kody wyjścia: `0` = OK, `1` = błąd (opis na stderr), `2` = zły argument.
 | `level --address N --value V` | poziom DAPC, V = 0–254 |
 | `all-on` / `all-off` | broadcast |
 | `all-level --value V` | broadcast, poziom V = 0–254 |
+| `device-id` | ID adaptera LUBA (GTIN, ID, artykuł). Z `--address N` także ID oprawy z banku 0 (GTIN, numer seryjny, firmware) |
+| `memory-scan --address N` | odczyt wszystkich banków pamięci oprawy (od 0 do ostatniego), w formie heksadecymalnej |
+| `cmd --id ID [--kind short\|group\|broadcast] [--address N] [--arg V]... [--confirm]` | **dowolna komenda python-dali** z katalogu (patrz niżej) |
+| `list-cmds [--filter TEKST]` | lista wszystkich komend z katalogu (bez połączenia z adapterem) |
 
 Przykłady (Windows):
 
@@ -142,6 +146,32 @@ python dali_lunatonev2.py --port /dev/ttyUSB0 on --address 0
 - `keep`: nie zmienia ustawień adaptera. Użyj tego przy zewnętrznym zasilaczu DALI. Nie łącz dwóch zasilaczy na jednej magistrali.
 
 ---
+
+### ID: adapter czy oprawa?
+
+- **ID adaptera** (`device-id`) to dane samego interfejsu Lunatone: GTIN, ID, numer artykułu, wersje PCB i montażu.
+- **ID oprawy** (`device-id --address N`) to dane urządzenia DALI z banku pamięci 0: GTIN, numer seryjny i wersja firmware. Ten numer seryjny razem z GTIN jest unikalny dla urządzenia.
+
+### Dowolna komenda DALI (`cmd`)
+
+Katalog zawiera wszystkie komendy z python-dali: około 330 pozycji dla opraw (gear) i urządzeń sterujących (device). Lista jest budowana automatycznie z biblioteki, więc nowe komendy z nowszej wersji python-dali pojawiają się same.
+
+```bash
+python dali_lunatonev2.py list-cmds --filter DAPC
+python dali_lunatonev2.py --port COM4 cmd --id dali.gear.general.DAPC --kind short --address 0 --arg 127
+python dali_lunatonev2.py --port COM4 cmd --id dali.gear.general.QueryStatus --kind short --address 0
+```
+
+- `--kind` to adresat: `short` (adres 0–63), `group` (grupa 0–15) albo `broadcast`. Komendy bez adresata go nie przyjmują.
+- `--arg` podaje argumenty komendy w kolejności z `list-cmds`. Liczby są zamieniane na int, reszta zostaje tekstem (np. `OFF` albo `MASK` dla DAPC).
+- Błędne argumenty wykrywa python-dali i zwraca czytelny błąd.
+- Niektóre komendy device wymagają obiektów typu `Instance` albo argumentów nazwanych. Nie są w katalogu lub zwracają błąd z opisem.
+
+**Komendy niebezpieczne** (reset, `Initialise`, `Randomise`, `Terminate`, zapis pamięci, `Store...`, power-on level, zmiana adresu) wymagają `--confirm`. Bez niego nic nie jest wysyłane. Interfejs webowy wymaga zaznaczenia potwierdzenia.
+
+### Logi
+
+Każda komenda wykonana z CLI lub z przeglądarki (poza `list-cmds`) zapisuje się w pliku `logs/dali-RRRR-MM-DD.txt`. Zawiera czas, źródło (`cli` albo `web` z adresem klienta), komendę, argumenty, wynik i błędy. Katalog `logs/` powstaje automatycznie. Zmienić go można zmienną `DALI_LOG_DIR`. Pliki logów nie są wysyłane do repozytorium.
 
 ## 5a. Interfejs webowy
 
@@ -251,6 +281,9 @@ Zanotuj wynik każdego kroku. Jeśli któryś nie przejdzie, wklej komendę i pe
 | `web/index.html` | strona interfejsu webowego (JS/CSS bez zewnętrznych bibliotek) |
 | `tests/test_dali_cli.py` | testy CLI na atrapie sterownika (bez sprzętu) |
 | `tests/test_web.py` | testy API webowego na atrapie sterownika |
+| `tests/test_memory.py` | testy ID i skanu banków na symulowanej oprawie |
+| `dali_catalog.py` | katalog wszystkich komend python-dali (budowany z introspekcji) |
+| `dali_logging.py` | zapis logów do `logs/` |
 | `pytest.ini` | pytest uruchamia tylko `tests/` |
 | `requirements.txt` / `requirements-dev.txt` | zależności z przypiętymi wersjami |
 | `test2.py` | raport diagnostyczny adaptera (tylko odczyt) |

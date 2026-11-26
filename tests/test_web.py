@@ -71,7 +71,8 @@ def test_commands_catalog_matches_cli_parser(client):
 
     parser = dali.build_parser()
     cli_commands = set(parser._subparsers._group_actions[0].choices)
-    assert ids == cli_commands
+    # cmd i list-cmds są obsługiwane przez katalog, nie przez przyciski
+    assert ids == cli_commands - {"cmd", "list-cmds"}
 
 
 def test_status_runs_and_returns_output(client, fake):
@@ -143,3 +144,11 @@ def test_token_required_when_configured(client, monkeypatch):
     assert client.get(
         "/api/commands", headers={"Authorization": "Bearer secret-token"}
     ).status_code == 200
+
+
+def test_version_is_reported_by_api_and_page(client):
+    from dali_version import APP_VERSION
+
+    assert APP_VERSION == "IPT_Lunatone_v1.0.0"
+    assert client.get("/api/commands").json()["version"] == APP_VERSION
+    assert APP_VERSION in client.get("/").text
