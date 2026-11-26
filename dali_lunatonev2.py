@@ -1,5 +1,24 @@
-import asyncio
+"""
+Sterowanie magistralą DALI przez interfejs Lunatone DALI-2 USB (protokół LUBA).
+
+Dwie warstwy:
+  * DaliController  - logika bez wypisywania na ekran. Zwraca dane, więc
+                      można jej użyć z CLI, z aplikacji webowej albo z testów.
+  * main()/CLI      - parsuje argumenty, wywołuje kontroler i drukuje wynik.
+
+Przykłady:
+  python dali_lunatonev2.py --port COM4 status
+  python dali_lunatonev2.py --port COM4 psu-on
+  python dali_lunatonev2.py --port /dev/ttyUSB0 scan
+  python dali_lunatonev2.py --port COM4 level --address 0 --value 127
+
+Kody wyjścia: 0 = OK, 1 = błąd (opis na stderr).
+"""
+
 import argparse
+import asyncio
+import os
+import sys
 
 from dali.driver.serial import DriverLubaRs232
 from dali.address import GearShort, GearBroadcast
@@ -20,474 +39,291 @@ from dali.gear.general import (
 from dali.sequences import QueryDeviceTypes
 
 
-DEFAULT_PORT = "COM4"
+DEFAULT_PORT = os.environ.get("DALI_PORT") or (
+    "COM4" if sys.platform == "win32" else "/dev/ttyUSB0"
+)
+
+# psu:
+#   "on"   - włącz wewnętrzny zasilacz magistrali (bit 7 HardwareSettings)
+#   "off"  - wyłącz wewnętrzny zasilacz
+#   "keep" - nie zmieniaj ustawień sprzętowych (np. przy zewnętrznym PSU)
+PSU_MODES = ("on", "off", "keep")
+
+ADDRESS_MAX = 63
+LEVEL_MAX = 254
 
 
 class DaliController:
+    """Kontroler magistrali DALI. Metody zwracają wyniki, nie drukują."""
 
-    def __init__(self, port: str):
+    def __init__(self, port: str = DEFAULT_PORT, psu: str = "on"):
+        if psu not in PSU_MODES:
+            raise ValueError(f"psu musi być jednym z {PSU_MODES}, jest: {psu!r}")
 
         self.port = port
+        self.psu = psu
+        self.driver = None
+
+    async def connect(self, apply_settings: bool | None = None) -> None:
+        """
+        Łączy się z adapterem.
+
+        Ustawienia PSU przekazujemy do konstruktora, a nie ustawiamy ręcznie
+        po connect(). Dzięki temu python-dali czeka, aż napięcie na magistrali
+        się pojawi, zanim wyśle pierwsze ramki DALI.
+
+        apply_settings=False: połączenie tylko do odczytu, ustawienia sprzętowe
+        adaptera (w tym PSU) zostają nietknięte.
+        """
+        if apply_settings is None:
+            apply_settings = self.psu != "keep"
 
         self.driver = DriverLubaRs232(
-            f"luba232:{port}"
+            f"luba232:{self.port}",
+            bus_power=(self.psu == "on"),
         )
+        await self.driver.connect(apply_settings=apply_settings)
 
-    async def connect(self):
+    async def close(self) -> None:
+        transport = getattr(self.driver, "_transport", None)
+        if transport is not None:
+            transport.close()
+        self.driver = None
 
-        await self.driver.connect()
+    # --- odczyt -----------------------------------------------------------
 
-    async def enable_psu(self):
+    async def line_status(self):
+        """Zwraca LubaLineStatus albo None, gdy adapter nie odpowiedział."""
+        return await self.driver.read_status()
 
-        self.driver._protocol.bus_power = True
-
-        await self.driver._protocol.send_device_settings()
-
-        print("PSU ON")
-
-    async def disable_psu(self):
-
-        self.driver._protocol.bus_power = False 
-
-        await self.driver._protocol.send_device_settings()
-
-    print("PSU OFF")
-
-    async def show_status(self):
-
-        status = await self.driver.read_status()
-
-        print()
-        print("================================")
-        print("INTERFACE STATUS")
-        print("================================")
-        print(f"PORT       : {self.port}")
-        print(f"BUS POWER  : {self.driver._protocol.bus_power}")
-        print(f"STATUS     : {status}")
-        print()
-
-    async def scan(self):
-
-        print()
-        print("================================")
-        print("SCAN")
-        print("================================")
-
-        found = False
-
-        for address in range(64):
-
+    async def scan(self) -> list[int]:
+        """Zwraca listę adresów (0..63), pod którymi odpowiada oprawa."""
+        found = []
+        for address in range(ADDRESS_MAX + 1):
             try:
-
                 response = await self.driver.send(
-                    QueryControlGearPresent(
-                        GearShort(address)
-                    )
+                    QueryControlGearPresent(GearShort(address))
                 )
-
-                if response.value:
-
-                    found = True
-
-                    print(
-                        f"DEVICE FOUND AT ADDRESS {address}"
-                    )
-
             except Exception:
-                pass
+                continue
+            if response is not None and response.value:
+                found.append(address)
+        return found
 
-        if not found:
-            print("NO DEVICES FOUND")
-
-        print()
-
-    async def info(self, address):
-
+    async def info(self, address: int) -> dict:
+        """Zwraca słownik z danymi oprawy. Błąd pojedynczego zapytania
+        trafia jako tekst 'ERROR (...)', nie przerywa pozostałych."""
         addr = GearShort(address)
-
-        print()
-        print("================================")
-        print("DEVICE INFO")
-        print("================================")
-
-        print(f"ADDRESS      : {address}")
+        result = {"address": address}
 
         try:
-
-            device_types = await self.driver.run_sequence(
+            result["device_types"] = await self.driver.run_sequence(
                 QueryDeviceTypes(addr)
             )
-
-            print(
-                f"DEVICE TYPES : {device_types}"
-            )
-
         except Exception as ex:
+            result["device_types"] = f"ERROR ({ex})"
 
-            print(
-                f"DEVICE TYPES : ERROR ({ex})"
-            )
+        queries = [
+            ("actual_level", QueryActualLevel),
+            ("min_level", QueryMinLevel),
+            ("max_level", QueryMaxLevel),
+            ("status", QueryStatus),
+        ]
+        for key, cmd in queries:
+            try:
+                response = await self.driver.send(cmd(addr))
+                result[key] = response.value
+            except Exception as ex:
+                result[key] = f"ERROR ({ex})"
 
-        try:
+        return result
 
-            actual = await self.driver.send(
-                QueryActualLevel(addr)
-            )
-
-            print(
-                f"ACTUAL LEVEL : {actual.value}"
-            )
-
-        except Exception as ex:
-
-            print(
-                f"ACTUAL LEVEL : ERROR ({ex})"
-            )
-
-        try:
-
-            minimum = await self.driver.send(
-                QueryMinLevel(addr)
-            )
-
-            print(
-                f"MIN LEVEL    : {minimum.value}"
-            )
-
-        except Exception as ex:
-
-            print(
-                f"MIN LEVEL    : ERROR ({ex})"
-            )
-
-        try:
-
-            maximum = await self.driver.send(
-                QueryMaxLevel(addr)
-            )
-
-            print(
-                f"MAX LEVEL    : {maximum.value}"
-            )
-
-        except Exception as ex:
-
-            print(
-                f"MAX LEVEL    : ERROR ({ex})"
-            )
-
-        try:
-
-            status = await self.driver.send(
-                QueryStatus(addr)
-            )
-
-            print(
-                f"STATUS       : {status}"
-            )
-
-        except Exception as ex:
-
-            print(
-                f"STATUS       : ERROR ({ex})"
-            )
-
-        print()
-
-    async def groups(self, address):
-
+    async def groups(self, address: int) -> list[int]:
+        """Zwraca listę grup (0..15), do których należy oprawa."""
         addr = GearShort(address)
+        low = await self.driver.send(QueryGroupsZeroToSeven(addr))
+        high = await self.driver.send(QueryGroupsEightToFifteen(addr))
+        if low is None or high is None:
+            raise IOError("brak odpowiedzi na zapytanie o grupy")
 
-        print()
-        print("================================")
-        print("GROUP MEMBERSHIP")
-        print("================================")
+        groups = [g for g in range(8) if low.value & (1 << g)]
+        groups += [g + 8 for g in range(8) if high.value & (1 << g)]
+        return groups
 
-        try:
+    # --- sterowanie -------------------------------------------------------
 
-            low = await self.driver.send(
-                QueryGroupsZeroToSeven(addr)
-            )
+    async def on(self, address: int) -> None:
+        await self.driver.send(RecallMaxLevel(GearShort(address)))
 
-            high = await self.driver.send(
-                QueryGroupsEightToFifteen(addr)
-            )
+    async def off(self, address: int) -> None:
+        await self.driver.send(Off(GearShort(address)))
 
-            low_mask = low.value
-            high_mask = high.value
+    async def level(self, address: int, value: int) -> None:
+        await self.driver.send(DAPC(GearShort(address), value))
 
-            for group in range(8):
+    async def all_on(self) -> None:
+        await self.driver.send(RecallMaxLevel(GearBroadcast()))
 
-                member = bool(
-                    low_mask & (1 << group)
-                )
+    async def all_off(self) -> None:
+        await self.driver.send(Off(GearBroadcast()))
 
-                print(
-                    f"GROUP {group:02d} : {member}"
-                )
-
-            for group in range(8):
-
-                member = bool(
-                    high_mask & (1 << group)
-                )
-
-                print(
-                    f"GROUP {group + 8:02d} : {member}"
-                )
-
-        except Exception as ex:
-
-            print(
-                f"GROUP QUERY ERROR : {ex}"
-            )
-
-        print()
-
-    async def on(self, address):
-
-        await self.driver.send(
-            RecallMaxLevel(
-                GearShort(address)
-            )
-        )
-
-        print(
-            f"ADDRESS {address} ON"
-        )
-
-    async def off(self, address):
-
-        await self.driver.send(
-            Off(
-                GearShort(address)
-            )
-        )
-
-        print(
-            f"ADDRESS {address} OFF"
-        )
-
-    async def level(self, address, value):
-
-        value = max(
-            0,
-            min(254, value)
-        )
-
-        await self.driver.send(
-            DAPC(
-                GearShort(address),
-                value
-            )
-        )
-
-        print(
-            f"ADDRESS {address} LEVEL {value}"
-        )
-
-    async def all_on(self):
-
-        await self.driver.send(
-            RecallMaxLevel(
-                GearBroadcast()
-            )
-        )
-
-        print("BROADCAST ON")
-
-    async def all_off(self):
-
-        await self.driver.send(
-            Off(
-                GearBroadcast()
-            )
-        )
-
-        print("BROADCAST OFF")
-
-    async def all_level(self, value):
-
-        value = max(
-            0,
-            min(254, value)
-        )
-
-        await self.driver.send(
-            DAPC(
-                GearBroadcast(),
-                value
-            )
-        )
-
-        print(
-            f"BROADCAST LEVEL {value}"
-        )
+    async def all_level(self, value: int) -> None:
+        await self.driver.send(DAPC(GearBroadcast(), value))
 
 
-async def main():
+# --- walidacja argumentów -------------------------------------------------
 
-    parser = argparse.ArgumentParser()
+def _address(text: str) -> int:
+    value = int(text)
+    if not 0 <= value <= ADDRESS_MAX:
+        raise argparse.ArgumentTypeError(f"adres musi być w zakresie 0..{ADDRESS_MAX}")
+    return value
 
+
+def _level(text: str) -> int:
+    value = int(text)
+    if not 0 <= value <= LEVEL_MAX:
+        raise argparse.ArgumentTypeError(f"poziom musi być w zakresie 0..{LEVEL_MAX}")
+    return value
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Sterowanie magistralą DALI (Lunatone DALI-2 USB)."
+    )
     parser.add_argument(
         "--port",
-        default=DEFAULT_PORT
+        default=DEFAULT_PORT,
+        help="port szeregowy: COM4 (Windows) lub /dev/ttyUSB0 (Linux). "
+             "Domyślnie zmienna DALI_PORT albo COM4/ttyUSB0.",
+    )
+    parser.add_argument(
+        "--psu",
+        choices=PSU_MODES,
+        default="on",
+        help="zasilacz magistrali: on (domyślnie), off, keep (zewnętrzny PSU)",
     )
 
-    sub = parser.add_subparsers(
-        dest="command"
-    )
+    sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("psu-on")
-    sub.add_parser("psu-off")
-    sub.add_parser("status")
-    sub.add_parser("scan")
+    sub.add_parser("status", help="stan adaptera i magistrali (tylko odczyt)")
+    sub.add_parser("psu-on", help="włącz wewnętrzny zasilacz magistrali")
+    sub.add_parser("psu-off", help="wyłącz wewnętrzny zasilacz magistrali")
+    sub.add_parser("scan", help="wyszukaj oprawy na magistrali")
 
-    sub.add_parser("all-on")
-    sub.add_parser("all-off")
+    p = sub.add_parser("info", help="dane oprawy")
+    p.add_argument("--address", type=_address, required=True)
 
-    all_level = sub.add_parser(
-        "all-level"
-    )
+    p = sub.add_parser("groups", help="grupy, do których należy oprawa")
+    p.add_argument("--address", type=_address, required=True)
 
-    all_level.add_argument(
-        "--value",
-        type=int,
-        required=True
-    )
+    p = sub.add_parser("on", help="pełna jasność oprawy")
+    p.add_argument("--address", type=_address, required=True)
 
-    info = sub.add_parser("info")
+    p = sub.add_parser("off", help="wyłącz oprawę")
+    p.add_argument("--address", type=_address, required=True)
 
-    info.add_argument(
-        "--address",
-        type=int,
-        required=True
-    )
+    p = sub.add_parser("level", help="ustaw poziom oprawy (DAPC)")
+    p.add_argument("--address", type=_address, required=True)
+    p.add_argument("--value", type=_level, required=True)
 
-    groups = sub.add_parser(
-        "groups"
-    )
+    sub.add_parser("all-on", help="broadcast: pełna jasność wszystkich opraw")
+    sub.add_parser("all-off", help="broadcast: wyłącz wszystkie oprawy")
 
-    groups.add_argument(
-        "--address",
-        type=int,
-        required=True
-    )
+    p = sub.add_parser("all-level", help="broadcast: ustaw poziom wszystkich opraw")
+    p.add_argument("--value", type=_level, required=True)
 
-    on = sub.add_parser("on")
+    return parser
 
-    on.add_argument(
-        "--address",
-        type=int,
-        required=True
-    )
 
-    off = sub.add_parser("off")
+# --- wykonanie komend -----------------------------------------------------
 
-    off.add_argument(
-        "--address",
-        type=int,
-        required=True
-    )
-
-    level = sub.add_parser(
-        "level"
-    )
-
-    level.add_argument(
-        "--address",
-        type=int,
-        required=True
-    )
-
-    level.add_argument(
-        "--value",
-        type=int,
-        required=True
-    )
-
-    args = parser.parse_args()
-
-    controller = DaliController(
-        args.port
-    )
-
-    await controller.connect()
-
+async def run(args, out=print) -> int:
+    """Wykonuje komendę. `out` pozwala podmienić wypisywanie (testy, web)."""
+    psu = args.psu
     if args.command == "psu-on":
-
-        await controller.enable_psu()
-
+        psu = "on"
     elif args.command == "psu-off":
+        psu = "off"
 
-        await controller.disable_psu()
+    ctrl = DaliController(args.port, psu=psu)
+    read_only = args.command == "status"
 
-    elif args.command == "status":
+    try:
+        await ctrl.connect(apply_settings=False if read_only else None)
 
-        await controller.show_status()
+        if args.command == "status":
+            status = await ctrl.line_status()
+            out("=== STATUS ADAPTERA ===")
+            out(f"Port           : {ctrl.port}")
+            if status is None:
+                out("Bus voltage    : BRAK ODPOWIEDZI ADAPTERA")
+            else:
+                out("Bus voltage    : " + ("ERROR" if status.bus_voltage_error else "OK"))
 
-    elif args.command == "scan":
+        elif args.command in ("psu-on", "psu-off"):
+            # Ustawienie PSU zostało wykonane w connect().
+            out("PSU ON" if psu == "on" else "PSU OFF")
 
-        await controller.enable_psu()
-        await controller.scan()
+        elif args.command == "scan":
+            found = await ctrl.scan()
+            if not found:
+                out("NO DEVICES FOUND")
+            for address in found:
+                out(f"DEVICE FOUND AT ADDRESS {address}")
 
-    elif args.command == "info":
+        elif args.command == "info":
+            data = await ctrl.info(args.address)
+            out("=== DEVICE INFO ===")
+            out(f"Address      : {data['address']}")
+            out(f"Device Types : {data['device_types']}")
+            out(f"Actual Level : {data['actual_level']}")
+            out(f"Min Level    : {data['min_level']}")
+            out(f"Max Level    : {data['max_level']}")
+            out(f"Status       : {data['status']}")
 
-        await controller.enable_psu()
-        await controller.info(
-            args.address
-        )
+        elif args.command == "groups":
+            groups = await ctrl.groups(args.address)
+            out(f"ADDRESS {args.address} GROUPS: {groups if groups else 'brak'}")
 
-    elif args.command == "groups":
+        elif args.command == "on":
+            await ctrl.on(args.address)
+            out(f"ADDRESS {args.address} ON")
 
-        await controller.enable_psu()
-        await controller.groups(
-            args.address
-        )
+        elif args.command == "off":
+            await ctrl.off(args.address)
+            out(f"ADDRESS {args.address} OFF")
 
-    elif args.command == "on":
+        elif args.command == "level":
+            await ctrl.level(args.address, args.value)
+            out(f"ADDRESS {args.address} LEVEL {args.value}")
 
-        await controller.enable_psu()
-        await controller.on(
-            args.address
-        )
+        elif args.command == "all-on":
+            await ctrl.all_on()
+            out("BROADCAST ON")
 
-    elif args.command == "off":
+        elif args.command == "all-off":
+            await ctrl.all_off()
+            out("BROADCAST OFF")
 
-        await controller.enable_psu()
-        await controller.off(
-            args.address
-        )
+        elif args.command == "all-level":
+            await ctrl.all_level(args.value)
+            out(f"BROADCAST LEVEL {args.value}")
 
-    elif args.command == "level":
+        return 0
 
-        await controller.enable_psu()
-        await controller.level(
-            args.address,
-            args.value
-        )
+    except Exception as ex:
+        print(f"BŁĄD: {ex}", file=sys.stderr)
+        return 1
 
-    elif args.command == "all-on":
+    finally:
+        await ctrl.close()
 
-        await controller.enable_psu()
-        await controller.all_on()
 
-    elif args.command == "all-off":
-
-        await controller.enable_psu()
-        await controller.all_off()
-
-    elif args.command == "all-level":
-
-        await controller.enable_psu()
-        await controller.all_level(
-            args.value
-        )
-
-    else:
-
-        parser.print_help()
+def main(argv=None) -> int:
+    args = build_parser().parse_args(argv)
+    return asyncio.run(run(args))
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    sys.exit(main())
