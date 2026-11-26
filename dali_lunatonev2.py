@@ -47,6 +47,7 @@ from dali.sequences import QueryDeviceTypes
 from dali.memory import info
 
 import dali_catalog
+import dali_memory
 from dali_logging import log_event
 from dali_version import APP_VERSION
 
@@ -145,6 +146,25 @@ class DaliController:
     async def memory_scan(self, address: int) -> dict:
         """Odczyt wszystkich banków pamięci oprawy (od 0 do ostatniego)."""
         return await self.driver.send(memory_scan_sequence(GearShort(address)))
+
+    async def device_scan(self, address: int) -> dict:
+        """Pełny skan: adapter, ID oprawy i wszystkie banki pamięci."""
+        identity = await self.gear_identity(address)
+        scan = await self.memory_scan(address)
+        return {
+            "address": address,
+            "adapter": self.adapter_info(),
+            "identity": identity,
+            "scan": scan,
+            "banks": dali_memory.analyse_scan(scan),
+        }
+
+    def scan_report(self, result: dict) -> list[str]:
+        """Raport tekstowy z wyniku device_scan."""
+        return dali_memory.format_report(
+            result["address"], result["identity"], result["adapter"],
+            result["banks"], result["scan"]["last_bank"],
+        )
 
     # --- ogólne wysłanie komendy --------------------------------------------
 
@@ -356,6 +376,10 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("memory-scan", help="odczyt wszystkich banków pamięci oprawy")
     p.add_argument("--address", type=_address, required=True)
 
+    p = sub.add_parser("device-scan", help="pełny skan: ID, wszystkie banki z opisami")
+    p.add_argument("--address", type=_address, required=True)
+    p.add_argument("--out", default=None, help="zapisz raport do pliku .txt")
+
     p = sub.add_parser("info", help="dane oprawy")
     p.add_argument("--address", type=_address, required=True)
 
@@ -456,6 +480,16 @@ async def _execute(ctrl: DaliController, args, emit, fail) -> int:
                 emit(f"BANK {bank}: ostatni adres 0x{data[0]:02X}")
                 for line in hexdump(data):
                     emit(line)
+
+    elif args.command == "device-scan":
+        result = await ctrl.device_scan(args.address)
+        report = ctrl.scan_report(result)
+        for line in report:
+            emit(line)
+        if args.out:
+            with open(args.out, "w", encoding="utf-8") as f:
+                f.write("\n".join(report) + "\n")
+            emit(f"Zapisano raport: {args.out}")
 
     elif args.command == "scan":
         found = await ctrl.scan()

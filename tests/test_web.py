@@ -72,7 +72,8 @@ def test_commands_catalog_matches_cli_parser(client):
     parser = dali.build_parser()
     cli_commands = set(parser._subparsers._group_actions[0].choices)
     # cmd i list-cmds są obsługiwane przez katalog, nie przez przyciski
-    assert ids == cli_commands - {"cmd", "list-cmds"}
+    # cmd, list-cmds i device-scan mają własne ścieżki (katalog lub przycisk skanu)
+    assert ids == cli_commands - {"cmd", "list-cmds", "device-scan"}
 
 
 def test_status_runs_and_returns_output(client, fake):
