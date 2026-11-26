@@ -207,3 +207,22 @@ def test_supported_article_numbers_are_whitelisted_in_driver():
 def test_invalid_psu_mode_is_rejected():
     with pytest.raises(ValueError):
         app.DaliController("COM4", psu="maybe")
+
+
+def test_cli_version_flag_prints_version(capsys):
+    from dali_version import APP_VERSION
+
+    try:
+        app.build_parser().parse_args(["--version"])
+    except SystemExit as ex:
+        assert ex.code == 0
+    assert APP_VERSION in capsys.readouterr().out
+
+
+def test_status_header_shows_version(fake_driver):
+    from dali_version import APP_VERSION
+
+    code, lines = run_cli("--port", "COM4", "status")
+
+    assert code == 0
+    assert any(APP_VERSION in line for line in lines)

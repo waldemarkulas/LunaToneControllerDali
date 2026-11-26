@@ -13,6 +13,8 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+from dali_version import APP_VERSION
+
 LOG_DIR = Path(os.environ.get("DALI_LOG_DIR") or Path(__file__).resolve().parent / "logs")
 
 
@@ -32,7 +34,8 @@ def log_event(source, command, details, ok, lines, errors, client=None, log_dir=
 
     origin = source if not client else f"{source} {client}"
     status = "OK" if ok else "BŁĄD"
-    head = f"{now:%Y-%m-%d %H:%M:%S} | {origin} | {command} {details}".rstrip() + f" | {status}"
+    head = (f"{now:%Y-%m-%d %H:%M:%S} | {APP_VERSION} | {origin} | {command} {details}".rstrip()
+            + f" | {status}")
 
     body = [f"    {line}" for line in lines]
     body += [f"    ERR: {line}" for line in errors]

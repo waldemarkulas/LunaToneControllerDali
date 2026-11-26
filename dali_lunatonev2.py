@@ -48,6 +48,7 @@ from dali.memory import info
 
 import dali_catalog
 from dali_logging import log_event
+from dali_version import APP_VERSION
 
 
 # Numery artykułów Lunatone, z którymi ten projekt jest używany.
@@ -326,8 +327,9 @@ def _level(text: str) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Sterowanie magistralą DALI (Lunatone DALI-2 USB)."
+        description=f"Sterowanie magistralą DALI (Lunatone DALI-2 USB). Wersja: {APP_VERSION}"
     )
+    parser.add_argument("--version", action="version", version=APP_VERSION)
     parser.add_argument(
         "--port",
         default=DEFAULT_PORT,
@@ -414,7 +416,7 @@ async def _execute(ctrl: DaliController, args, emit, fail) -> int:
     """Wykonuje komendę na połączonym kontrolerze. Zwraca kod wyjścia."""
     if args.command == "status":
         status = await ctrl.line_status()
-        emit("=== STATUS ADAPTERA ===")
+        emit(f"=== STATUS ADAPTERA ({APP_VERSION}) ===")
         emit(f"Port           : {ctrl.port}")
         emit(f"Article nr     : {ctrl.article_number}")
         if status is None:

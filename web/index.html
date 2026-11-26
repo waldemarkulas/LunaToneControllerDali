@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>DALI - sterowanie</title>
+<title>DALI - sterowanie | IPT_Lunatone_v1.0.0</title>
 <style>
   :root {
     --bg: #f4f6f8; --card: #ffffff; --text: #1d2630; --muted: #6b7785;
@@ -91,7 +91,7 @@
 <body>
 <main>
   <h1>Sterowanie DALI</h1>
-  <div class="muted">Port: <span id="port">…</span></div>
+  <div class="muted">Wersja: <span id="version">IPT_Lunatone_v1.0.0</span> · Port: <span id="port">…</span></div>
 
   <section id="loginCard" class="card hidden">
     <label for="token">Token dostępu</label>
@@ -467,6 +467,7 @@
       const data = await api("/api/commands");
       items = buildItems(data);
       $("port").textContent = data.port;
+      if (data.version) $("version").textContent = data.version;
       $("loginCard").classList.add("hidden");
     } catch (e) {
       if (e.message !== "unauthorized") $("output").textContent = "Nie udało się pobrać listy funkcji: " + e.message;

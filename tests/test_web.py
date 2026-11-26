@@ -144,3 +144,11 @@ def test_token_required_when_configured(client, monkeypatch):
     assert client.get(
         "/api/commands", headers={"Authorization": "Bearer secret-token"}
     ).status_code == 200
+
+
+def test_version_is_reported_by_api_and_page(client):
+    from dali_version import APP_VERSION
+
+    assert APP_VERSION == "IPT_Lunatone_v1.0.0"
+    assert client.get("/api/commands").json()["version"] == APP_VERSION
+    assert APP_VERSION in client.get("/").text

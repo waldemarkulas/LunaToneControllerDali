@@ -28,6 +28,7 @@ from pydantic import BaseModel
 
 import dali_catalog
 import dali_lunatonev2 as dali
+from dali_version import APP_VERSION
 
 WEB_TOKEN = os.environ.get("DALI_WEB_TOKEN", "")
 INDEX_HTML = Path(__file__).resolve().parent / "web" / "index.html"
@@ -125,12 +126,13 @@ def parse_argv(argv: list[str]):
 
 @contextlib.asynccontextmanager
 async def lifespan(_app: FastAPI):
+    print(f"{APP_VERSION} - interfejs web")
     if not WEB_TOKEN:
         print("UWAGA: DALI_WEB_TOKEN nie ustawiony - API działa bez logowania.")
     yield
 
 
-app = FastAPI(title="LunaToneControllerDali", lifespan=lifespan)
+app = FastAPI(title=APP_VERSION, version=APP_VERSION, lifespan=lifespan)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -144,6 +146,7 @@ async def list_commands():
         "commands": COMMANDS,
         "catalog": dali_catalog.public_entries(),
         "port": dali.DEFAULT_PORT,
+        "version": APP_VERSION,
     }
 
 
