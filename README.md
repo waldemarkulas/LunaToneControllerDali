@@ -170,9 +170,9 @@ python dali_lunatonev2.py --port COM4 cmd --id dali.gear.general.QueryStatus --k
 
 **Komendy niebezpieczne** (reset, `Initialise`, `Randomise`, `Terminate`, zapis pamięci, `Store...`, power-on level, zmiana adresu) wymagają `--confirm`. Bez niego nic nie jest wysyłane. Interfejs webowy wymaga zaznaczenia potwierdzenia.
 
-### Skan urządzenia (przycisk w przeglądarce)
+### Skan urządzenia (zakładka w przeglądarce)
 
-Na stronie web jest przycisk **Skanuj urządzenie**. Odczytuje ID adaptera i oprawy oraz wszystkie banki pamięci. Każdy bank rozwija się w podsumowaniu z wartościami zdekodowanymi przez bibliotekę (np. GTIN, numer seryjny, firmware). Przycisk **Zapisz do TXT** pobiera raport, który jest identyczny z wynikiem `device-scan`. Niezaimplementowane wartości są pomijane, a ich liczba podana na końcu banku.
+Skan jest w osobnej zakładce **Skan urządzenia**. Po lewej stronie wyniku jest opis po ludzku, po prawej dane techniczne. Przycisk **Skanuj urządzenie**. Odczytuje ID adaptera i oprawy oraz wszystkie banki pamięci. Każdy bank rozwija się w podsumowaniu z wartościami zdekodowanymi przez bibliotekę (np. GTIN, numer seryjny, firmware). Przycisk **Zapisz do TXT** pobiera raport, który jest identyczny z wynikiem `device-scan`. Niezaimplementowane wartości są pomijane, a ich liczba podana na końcu banku.
 
 ### Logi
 

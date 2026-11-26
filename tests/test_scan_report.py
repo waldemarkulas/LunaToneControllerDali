@@ -118,3 +118,29 @@ def test_report_skips_unimplemented_values_but_counts_them():
 
     assert "HardwareVersion" not in text
     assert "pominięto" in text
+
+
+def test_plain_explanation_uses_polish_labels_and_counts_missing():
+    banks = dali_memory.analyse_scan({"last_bank": 1, "banks": {0: make_bank0(), 1: [0x03, 0xAA, None, 0xCC]}})
+    plain = dali_memory.explain_scan(5, {"gtin": 4328719365, "serial": 42, "firmware": "1.7"},
+                                     {"article_num": 24138215}, banks, 1)
+    text = "\n".join(plain)
+
+    assert "Oprawa o adresie 5 odpowiedziała" in text
+    assert "Numer seryjny: 42" in text
+    assert "Numer katalogowy producenta (GTIN): 4328719365" in text
+    assert "1 nie odpowiedziało" in text
+    assert "Ostatni adres w banku: 3" in text
+
+    unknown = dali_memory.analyse_scan({"last_bank": 2, "banks": {2: [0x02, 0x10, 0x20]}})
+    plain_unknown = "\n".join(dali_memory.explain_scan(0, {}, None, unknown, 2))
+    assert "Biblioteka nie zna opisu" in plain_unknown
+
+
+def test_web_scan_returns_plain_explanation(sim):
+    with TestClient(web_app.app) as client:
+        body = client.post("/api/scan-device", json={"address": 0}).json()
+
+    assert body["ok"] is True
+    assert any("odpowiedziała" in line for line in body["plain"])
+    assert "--- PO LUDZKU ---" not in "\n".join(body["plain"])

@@ -28,6 +28,7 @@ from pydantic import BaseModel
 
 import dali_catalog
 import dali_lunatonev2 as dali
+import dali_memory
 from dali_logging import log_event
 from dali_version import APP_VERSION
 
@@ -213,6 +214,10 @@ async def scan_device(req: ScanRequest, request: Request):
         "identity": result["identity"],
         "last_bank": result["scan"]["last_bank"],
         "banks": result["banks"],
+        "plain": dali_memory.explain_scan(
+            req.address, result["identity"], result["adapter"],
+            result["banks"], result["scan"]["last_bank"],
+        ),
         "report": report,
     }
 

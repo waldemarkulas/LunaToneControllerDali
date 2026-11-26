@@ -91,6 +91,16 @@
   details.bank td { padding: 4px 6px; border-top: 1px solid var(--border); vertical-align: top; }
   details.bank td.v { font-family: ui-monospace, Consolas, monospace; white-space: nowrap; }
   .summary { font-size: 14px; line-height: 1.6; margin-top: 10px; }
+  .tabs { display: flex; gap: 6px; margin: 14px 0 0; border-bottom: 1px solid var(--border); }
+  .tab { border-radius: 8px 8px 0 0; border-bottom: none; margin-bottom: -1px; background: transparent; }
+  .tab.active { background: var(--card); border-color: var(--border); border-bottom: 1px solid var(--card); font-weight: 700; }
+  .scan-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; align-items: start; }
+  .scan-grid h2 { margin-bottom: 8px; }
+  .plain { font-size: 15px; line-height: 1.6; color: var(--text); }
+  .plain p { margin: 0 0 10px; }
+  .plain ul { margin: 0 0 10px 18px; padding: 0; }
+  .plain li { margin-bottom: 4px; }
+  @media (max-width: 760px) { .scan-grid { grid-template-columns: 1fr; } }
   @media (max-width: 560px) { .row { grid-template-columns: 1fr; } }
 </style>
 </head>
@@ -98,6 +108,11 @@
 <main>
   <h1>Sterowanie DALI</h1>
   <div class="muted">Wersja: <span id="version">IPT_Lunatone_v1.0.0</span> · Port: <span id="port">…</span></div>
+
+  <nav class="tabs" role="tablist">
+    <button class="tab active" data-tab="viewControl" role="tab">Sterowanie</button>
+    <button class="tab" data-tab="viewScan" role="tab">Skan urządzenia</button>
+  </nav>
 
   <section id="loginCard" class="card hidden">
     <label for="token">Token dostępu</label>
@@ -108,6 +123,8 @@
     <div class="hint" id="loginHint"></div>
   </section>
 
+
+  <div id="viewControl">
   <section class="card">
     <h2>Szybkie akcje</h2>
     <div class="quick">
@@ -119,23 +136,6 @@
     </div>
   </section>
 
-  <section class="card">
-    <h2>Skan urządzenia</h2>
-    <div class="row">
-      <div>
-        <label for="scanAddress">Adres oprawy (0–63)</label>
-        <input id="scanAddress" type="number" min="0" max="63" step="1" value="0" inputmode="numeric">
-      </div>
-      <div style="display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap">
-        <button id="scanBtn" class="primary">Skanuj urządzenie</button>
-        <button id="saveTxt" disabled>Zapisz do TXT</button>
-      </div>
-    </div>
-    <div class="hint">Odczytuje ID adaptera i oprawy oraz wszystkie banki pamięci z opisami wartości.</div>
-    <div id="scanStatus" class="hint"></div>
-    <div id="scanSummary" class="summary"></div>
-    <div id="scanBanks"></div>
-  </section>
 
   <section class="card">
     <h2>Komenda</h2>
@@ -191,6 +191,39 @@
     </div>
     <pre id="output">Wybierz funkcję, aby rozpocząć.</pre>
   </section>
+
+  </div>
+
+  <div id="viewScan" class="hidden">
+  <section class="card">
+    <h2>Skan urządzenia</h2>
+    <div class="row">
+      <div>
+        <label for="scanAddress">Adres oprawy (0–63)</label>
+        <input id="scanAddress" type="number" min="0" max="63" step="1" value="0" inputmode="numeric">
+      </div>
+      <div style="display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap">
+        <button id="scanBtn" class="primary">Skanuj urządzenie</button>
+        <button id="saveTxt" disabled>Zapisz do TXT</button>
+      </div>
+    </div>
+    <div class="hint">Odczytuje ID adaptera i oprawy oraz wszystkie banki pamięci z opisami wartości.</div>
+    <div id="scanStatus" class="hint"></div>
+    <div class="scan-grid">
+      <div class="col">
+        <h2>Po ludzku</h2>
+        <div id="scanPlain" class="plain muted">Najpierw wykonaj skan.</div>
+      </div>
+      <div class="col">
+        <h2>Dane techniczne</h2>
+        <div id="scanSummary" class="summary"></div>
+        <div id="scanBanks"></div>
+      </div>
+    </div>
+  </section>
+
+
+  </div>
 </main>
 
 <script>
@@ -479,6 +512,14 @@
     btn.addEventListener("click", () => post("/api/run", { command: btn.dataset.quick }));
   });
 
+  // --- zakładki ----------------------------------------------------------
+  document.querySelectorAll(".tab").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t === btn));
+      ["viewControl", "viewScan"].forEach(id => $(id).classList.toggle("hidden", id !== btn.dataset.tab));
+    });
+  });
+
   // --- skan urządzenia ---------------------------------------------------
   let lastReport = null;
   let lastAddress = null;
@@ -490,7 +531,31 @@
     return node;
   }
 
+  function renderPlain(lines) {
+    const box = $("scanPlain");
+    box.classList.remove("muted");
+    box.innerHTML = "";
+    let list = null;
+    let paragraph = null;
+    lines.forEach(line => {
+      if (line.trim() === "") {
+        list = null; paragraph = null;
+        return;
+      }
+      if (line.startsWith("  • ")) {
+        if (!list) { list = el("ul"); box.appendChild(list); }
+        list.appendChild(el("li", line.slice(4)));
+        paragraph = null;
+        return;
+      }
+      if (!paragraph) { paragraph = el("p"); box.appendChild(paragraph); }
+      paragraph.append(document.createTextNode(line + " "));
+      list = null;
+    });
+  }
+
   function renderScan(data) {
+    renderPlain(data.plain || []);
     const summary = $("scanSummary");
     summary.innerHTML = "";
     const lines = [
@@ -563,6 +628,8 @@
     $("scanStatus").textContent = "Skanuję… (może potrwać kilkanaście sekund)";
     $("scanSummary").innerHTML = "";
     $("scanBanks").innerHTML = "";
+    $("scanPlain").textContent = "Trwa skan…";
+    $("scanPlain").classList.add("muted");
     try {
       const data = await api("/api/scan-device", { method: "POST", body: JSON.stringify({ address }) });
       if (!data.ok) {
