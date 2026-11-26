@@ -28,6 +28,7 @@ from pydantic import BaseModel
 
 import dali_catalog
 import dali_lunatonev2 as dali
+from dali_logging import log_event
 from dali_version import APP_VERSION
 
 WEB_TOKEN = os.environ.get("DALI_WEB_TOKEN", "")
@@ -174,6 +175,46 @@ async def _execute(argv: list[str], command: str, request: Request):
 async def run_command(req: RunRequest, request: Request):
     argv = build_argv(req)
     return await _execute(argv, req.command, request)
+
+
+class ScanRequest(BaseModel):
+    address: int
+
+
+@app.post("/api/scan-device", dependencies=[Depends(require_token)])
+async def scan_device(req: ScanRequest, request: Request):
+    """Pełny skan oprawy: ID adaptera, ID oprawy i wszystkie banki pamięci."""
+    if not 0 <= req.address <= dali.ADDRESS_MAX:
+        raise HTTPException(status_code=400, detail="Adres oprawy musi być w zakresie 0–63")
+
+    client = request.client.host if request.client else None
+    result, report, errors = None, [], []
+    async with _port_lock:
+        ctrl = dali.DaliController(dali.DEFAULT_PORT, psu="on")
+        try:
+            await ctrl.connect()
+            result = await ctrl.device_scan(req.address)
+            report = ctrl.scan_report(result)
+        except Exception as ex:
+            errors.append(str(ex))
+        finally:
+            await ctrl.close()
+
+    ok = result is not None
+    log_event("web", "device-scan", f"address={req.address}", ok, report, errors, client)
+
+    if not ok:
+        return {"ok": False, "errors": errors}
+    return {
+        "ok": True,
+        "version": APP_VERSION,
+        "address": req.address,
+        "adapter": result["adapter"],
+        "identity": result["identity"],
+        "last_bank": result["scan"]["last_bank"],
+        "banks": result["banks"],
+        "report": report,
+    }
 
 
 @app.post("/api/send", dependencies=[Depends(require_token)])

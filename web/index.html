@@ -85,6 +85,12 @@
   .login { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .login input { flex: 1; min-width: 180px; }
   .tag { font-size: 12px; color: var(--muted); }
+  details.bank { border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; margin-top: 8px; }
+  details.bank summary { cursor: pointer; font-weight: 600; }
+  details.bank table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 13px; }
+  details.bank td { padding: 4px 6px; border-top: 1px solid var(--border); vertical-align: top; }
+  details.bank td.v { font-family: ui-monospace, Consolas, monospace; white-space: nowrap; }
+  .summary { font-size: 14px; line-height: 1.6; margin-top: 10px; }
   @media (max-width: 560px) { .row { grid-template-columns: 1fr; } }
 </style>
 </head>
@@ -111,6 +117,24 @@
       <button data-quick="scan">Skan magistrali</button>
       <button data-quick="device-id">ID adaptera</button>
     </div>
+  </section>
+
+  <section class="card">
+    <h2>Skan urządzenia</h2>
+    <div class="row">
+      <div>
+        <label for="scanAddress">Adres oprawy (0–63)</label>
+        <input id="scanAddress" type="number" min="0" max="63" step="1" value="0" inputmode="numeric">
+      </div>
+      <div style="display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap">
+        <button id="scanBtn" class="primary">Skanuj urządzenie</button>
+        <button id="saveTxt" disabled>Zapisz do TXT</button>
+      </div>
+    </div>
+    <div class="hint">Odczytuje ID adaptera i oprawy oraz wszystkie banki pamięci z opisami wartości.</div>
+    <div id="scanStatus" class="hint"></div>
+    <div id="scanSummary" class="summary"></div>
+    <div id="scanBanks"></div>
   </section>
 
   <section class="card">
@@ -453,6 +477,121 @@
 
   document.querySelectorAll("[data-quick]").forEach(btn => {
     btn.addEventListener("click", () => post("/api/run", { command: btn.dataset.quick }));
+  });
+
+  // --- skan urządzenia ---------------------------------------------------
+  let lastReport = null;
+  let lastAddress = null;
+
+  function el(tag, text, cls) {
+    const node = document.createElement(tag);
+    if (text !== undefined && text !== null) node.textContent = text;
+    if (cls) node.className = cls;
+    return node;
+  }
+
+  function renderScan(data) {
+    const summary = $("scanSummary");
+    summary.innerHTML = "";
+    const lines = [
+      ["Wersja", data.version],
+      ["Adres oprawy", data.address],
+      ["Adapter: GTIN / ID / artykuł",
+        data.adapter ? `${data.adapter.gtin} / ${data.adapter.id} / ${data.adapter.article_num}` : "brak"],
+      ["Oprawa: GTIN", data.identity.gtin],
+      ["Oprawa: nr seryjny", data.identity.serial],
+      ["Oprawa: firmware", data.identity.firmware],
+      ["Ostatni bank", data.last_bank],
+      ["Banków odczytanych", data.banks.filter(b => b.exists).length],
+    ];
+    lines.forEach(([k, v]) => {
+      const row = el("div");
+      row.append(el("strong", k + ": "), document.createTextNode(String(v)));
+      summary.appendChild(row);
+    });
+
+    const box = $("scanBanks");
+    box.innerHTML = "";
+    data.banks.forEach(bank => {
+      const det = el("details", null, "bank");
+      const sum = el("summary");
+      if (!bank.exists) {
+        sum.textContent = `Bank ${bank.number}: nie istnieje`;
+        det.appendChild(sum);
+        box.appendChild(det);
+        return;
+      }
+      if (!bank.data || typeof bank.data === "string") {
+        sum.textContent = `Bank ${bank.number}: błąd odczytu ${bank.data || ""}`;
+        det.appendChild(sum);
+        box.appendChild(det);
+        return;
+      }
+      sum.textContent = `Bank ${bank.number}: ${bank.title} (ostatni adres 0x${bank.last.toString(16).toUpperCase().padStart(2, "0")})`;
+      det.appendChild(sum);
+
+      const hex = el("pre");
+      const rowsOut = [];
+      for (let i = 0; i < bank.data.length; i += 16) {
+        const cells = bank.data.slice(i, i + 16).map(b => b === null ? "--" : b.toString(16).toUpperCase().padStart(2, "0"));
+        rowsOut.push(i.toString(16).toUpperCase().padStart(2, "0") + ": " + cells.join(" "));
+      }
+      hex.textContent = rowsOut.join("\n");
+      det.appendChild(hex);
+
+      if (bank.rows.length) {
+        const table = el("table");
+        bank.rows.forEach(r => {
+          const tr = el("tr");
+          tr.append(el("td", r.name), el("td", r.value !== null ? r.value : "<" + r.status + ">", "v"), el("td", r.doc, "muted"));
+          table.appendChild(tr);
+        });
+        det.appendChild(table);
+      }
+      box.appendChild(det);
+    });
+  }
+
+  $("scanBtn").addEventListener("click", async () => {
+    const address = Number($("scanAddress").value);
+    if (!Number.isInteger(address) || address < 0 || address > 63) {
+      $("scanStatus").textContent = "Podaj adres 0–63.";
+      return;
+    }
+    $("scanBtn").disabled = true;
+    $("saveTxt").disabled = true;
+    $("scanStatus").textContent = "Skanuję… (może potrwać kilkanaście sekund)";
+    $("scanSummary").innerHTML = "";
+    $("scanBanks").innerHTML = "";
+    try {
+      const data = await api("/api/scan-device", { method: "POST", body: JSON.stringify({ address }) });
+      if (!data.ok) {
+        $("scanStatus").textContent = "Błąd: " + (data.errors || []).join("; ");
+      } else {
+        $("scanStatus").textContent = "Skan zakończony.";
+        lastReport = data.report;
+        lastAddress = address;
+        renderScan(data);
+        $("saveTxt").disabled = false;
+      }
+    } catch (e) {
+      if (e.message !== "unauthorized") $("scanStatus").textContent = "Błąd: " + e.message;
+    } finally {
+      $("scanBtn").disabled = false;
+    }
+  });
+
+  $("saveTxt").addEventListener("click", () => {
+    if (!lastReport) return;
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    const blob = new Blob([lastReport.join("\n") + "\n"], { type: "text/plain;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `skan-oprawy-${lastAddress}-${stamp}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   });
 
   // --- logowanie tokenem -------------------------------------------------

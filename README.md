@@ -119,6 +119,7 @@ Kody wyjścia: `0` = OK, `1` = błąd (opis na stderr), `2` = zły argument.
 | `all-on` / `all-off` | broadcast |
 | `all-level --value V` | broadcast, poziom V = 0–254 |
 | `device-id` | ID adaptera LUBA (GTIN, ID, artykuł). Z `--address N` także ID oprawy z banku 0 (GTIN, numer seryjny, firmware) |
+| `device-scan --address N [--out PLIK.txt]` | pełny skan: ID adaptera, ID oprawy i wszystkie banki pamięci z opisami wartości. `--out` zapisuje raport do pliku |
 | `memory-scan --address N` | odczyt wszystkich banków pamięci oprawy (od 0 do ostatniego), w formie heksadecymalnej |
 | `cmd --id ID [--kind short\|group\|broadcast] [--address N] [--arg V]... [--confirm]` | **dowolna komenda python-dali** z katalogu (patrz niżej) |
 | `list-cmds [--filter TEKST]` | lista wszystkich komend z katalogu (bez połączenia z adapterem) |
@@ -168,6 +169,10 @@ python dali_lunatonev2.py --port COM4 cmd --id dali.gear.general.QueryStatus --k
 - Niektóre komendy device wymagają obiektów typu `Instance` albo argumentów nazwanych. Nie są w katalogu lub zwracają błąd z opisem.
 
 **Komendy niebezpieczne** (reset, `Initialise`, `Randomise`, `Terminate`, zapis pamięci, `Store...`, power-on level, zmiana adresu) wymagają `--confirm`. Bez niego nic nie jest wysyłane. Interfejs webowy wymaga zaznaczenia potwierdzenia.
+
+### Skan urządzenia (przycisk w przeglądarce)
+
+Na stronie web jest przycisk **Skanuj urządzenie**. Odczytuje ID adaptera i oprawy oraz wszystkie banki pamięci. Każdy bank rozwija się w podsumowaniu z wartościami zdekodowanymi przez bibliotekę (np. GTIN, numer seryjny, firmware). Przycisk **Zapisz do TXT** pobiera raport, który jest identyczny z wynikiem `device-scan`. Niezaimplementowane wartości są pomijane, a ich liczba podana na końcu banku.
 
 ### Logi
 
