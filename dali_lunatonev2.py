@@ -259,8 +259,15 @@ def build_parser() -> argparse.ArgumentParser:
 
 # --- wykonanie komend -----------------------------------------------------
 
-async def run(args, out=print) -> int:
-    """Wykonuje komendę. `out` pozwala podmienić wypisywanie (testy, web)."""
+async def run(args, out=print, err=None) -> int:
+    """
+    Wykonuje komendę. `out` i `err` pozwalają przekierować wynik i błędy
+    (CLI wypisuje na stdout/stderr, web zbiera linie do odpowiedzi).
+    """
+    if err is None:
+        def err(message):
+            print(message, file=sys.stderr)
+
     psu = args.psu
     if args.command == "psu-on":
         psu = "on"
@@ -342,7 +349,7 @@ async def run(args, out=print) -> int:
         return 0
 
     except Exception as ex:
-        print(f"BŁĄD: {ex}", file=sys.stderr)
+        err(f"BŁĄD: {ex}")
         return 1
 
     finally:

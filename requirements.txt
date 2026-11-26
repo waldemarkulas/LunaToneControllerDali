@@ -3,3 +3,7 @@
 python-dali==0.16
 serialx==1.15.1
 pyserial==3.5
+
+# Interfejs webowy (web_app.py).
+fastapi==0.165.0
+uvicorn==0.54.0
