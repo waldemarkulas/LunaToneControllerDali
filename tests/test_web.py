@@ -71,7 +71,8 @@ def test_commands_catalog_matches_cli_parser(client):
 
     parser = dali.build_parser()
     cli_commands = set(parser._subparsers._group_actions[0].choices)
-    assert ids == cli_commands
+    # cmd i list-cmds są obsługiwane przez katalog, nie przez przyciski
+    assert ids == cli_commands - {"cmd", "list-cmds"}
 
 
 def test_status_runs_and_returns_output(client, fake):
