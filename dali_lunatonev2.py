@@ -39,6 +39,16 @@ from dali.gear.general import (
 from dali.sequences import QueryDeviceTypes
 
 
+# Numery artykułów Lunatone, z którymi ten projekt jest używany.
+# python-dali ostrzega przy każdym numerze spoza swojej listy TESTED_ARTICLE_NUMBERS,
+# więc lista jest tu uzupełniana, żeby ostrzeżenie nie pojawiało się przy każdym
+# połączeniu. Nieznany numer nadal wywoła ostrzeżenie biblioteki.
+SUPPORTED_ARTICLE_NUMBERS = frozenset({24138215, 24138246, 24166096})
+
+DriverLubaRs232.TESTED_ARTICLE_NUMBERS = (
+    frozenset(DriverLubaRs232.TESTED_ARTICLE_NUMBERS) | SUPPORTED_ARTICLE_NUMBERS
+)
+
 DEFAULT_PORT = os.environ.get("DALI_PORT") or (
     "COM4" if sys.platform == "win32" else "/dev/ttyUSB0"
 )

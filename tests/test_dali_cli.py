@@ -173,6 +173,13 @@ def test_connection_error_returns_exit_code_1(fake_driver, capsys):
     assert "port not found" in capsys.readouterr().err
 
 
+def test_supported_article_numbers_are_whitelisted_in_driver():
+    from dali.driver.serial import DriverLubaRs232
+
+    for article in (24138215, 24138246, 24166096):
+        assert article in DriverLubaRs232.TESTED_ARTICLE_NUMBERS
+
+
 def test_invalid_psu_mode_is_rejected():
     with pytest.raises(ValueError):
         app.DaliController("COM4", psu="maybe")
