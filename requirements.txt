@@ -1,0 +1,5 @@
+# Zależności runtime. Wersje przypięte, bo python-dali zmienia zachowanie
+# połączenia LUBA między wydaniami (od 0.13 connect() sam ustawia PSU).
+python-dali==0.16
+serialx==1.15.1
+pyserial==3.5
