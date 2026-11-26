@@ -39,6 +39,16 @@ from dali.gear.general import (
 from dali.sequences import QueryDeviceTypes
 
 
+# Numery artykułów Lunatone, z którymi ten projekt jest używany.
+# python-dali ostrzega przy każdym numerze spoza swojej listy TESTED_ARTICLE_NUMBERS,
+# więc lista jest tu uzupełniana, żeby ostrzeżenie nie pojawiało się przy każdym
+# połączeniu. Nieznany numer nadal wywoła ostrzeżenie biblioteki.
+SUPPORTED_ARTICLE_NUMBERS = frozenset({24138215, 24138246, 24166096})
+
+DriverLubaRs232.TESTED_ARTICLE_NUMBERS = (
+    frozenset(DriverLubaRs232.TESTED_ARTICLE_NUMBERS) | SUPPORTED_ARTICLE_NUMBERS
+)
+
 DEFAULT_PORT = os.environ.get("DALI_PORT") or (
     "COM4" if sys.platform == "win32" else "/dev/ttyUSB0"
 )
@@ -63,6 +73,7 @@ class DaliController:
         self.port = port
         self.psu = psu
         self.driver = None
+        self.article_number = None
 
     async def connect(self, apply_settings: bool | None = None) -> None:
         """
@@ -83,6 +94,16 @@ class DaliController:
             bus_power=(self.psu == "on"),
         )
         await self.driver.connect(apply_settings=apply_settings)
+
+        info = getattr(self.driver._protocol, "device_info", None)
+        self.article_number = getattr(info, "article_num", None)
+
+    def unsupported_article(self) -> bool:
+        """True, gdy adapter ma numer artykułu spoza SUPPORTED_ARTICLE_NUMBERS."""
+        return (
+            self.article_number is not None
+            and self.article_number not in SUPPORTED_ARTICLE_NUMBERS
+        )
 
     async def close(self) -> None:
         transport = getattr(self.driver, "_transport", None)
@@ -252,10 +273,18 @@ async def run(args, out=print) -> int:
     try:
         await ctrl.connect(apply_settings=False if read_only else None)
 
+        if ctrl.unsupported_article():
+            out(
+                f"UWAGA: nieznany numer artykułu {ctrl.article_number}. "
+                f"Znane: {', '.join(str(n) for n in sorted(SUPPORTED_ARTICLE_NUMBERS))}. "
+                "Sterowanie nie zostało sprawdzone na tym adapterze."
+            )
+
         if args.command == "status":
             status = await ctrl.line_status()
             out("=== STATUS ADAPTERA ===")
             out(f"Port           : {ctrl.port}")
+            out(f"Article nr     : {ctrl.article_number}")
             if status is None:
                 out("Bus voltage    : BRAK ODPOWIEDZI ADAPTERA")
             else:
