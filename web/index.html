@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DALI - sterowanie</title>
+<style>
+  :root {
+    --bg: #f4f6f8; --card: #ffffff; --text: #1d2630; --muted: #6b7785;
+    --accent: #2563eb; --ok: #15803d; --err: #b91c1c; --border: #d5dce4;
+    --hover: #eef3fb;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #12171d; --card: #1b222b; --text: #e6ebf1; --muted: #8b97a6;
+      --accent: #5b8def; --ok: #4ade80; --err: #f87171; --border: #2d3742;
+      --hover: #243040;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #12171d; --card: #1b222b; --text: #e6ebf1; --muted: #8b97a6;
+    --accent: #5b8def; --ok: #4ade80; --err: #f87171; --border: #2d3742;
+    --hover: #243040;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 760px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 20px; margin: 8px 0 4px; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 10px; padding: 16px; margin-top: 14px;
+  }
+  .quick { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+  button {
+    font: inherit; color: var(--text); background: var(--card);
+    border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px;
+    cursor: pointer; min-height: 44px;
+  }
+  button:hover:not(:disabled) { background: var(--hover); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.primary:hover:not(:disabled) { background: var(--accent); filter: brightness(1.1); }
+  .combo { position: relative; }
+  label { display: block; font-weight: 600; margin-bottom: 6px; }
+  input[type=text], input[type=number], input[type=password] {
+    font: inherit; color: var(--text); background: var(--card);
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 10px 12px; width: 100%; min-height: 44px;
+  }
+  .list {
+    position: absolute; left: 0; right: 0; top: 100%; z-index: 10;
+    margin: 4px 0 0; padding: 4px 0; list-style: none;
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 8px; max-height: 320px; overflow: auto;
+    box-shadow: 0 8px 24px rgba(0,0,0,.15);
+  }
+  .list li { padding: 8px 12px; cursor: pointer; display: flex; justify-content: space-between; gap: 12px; }
+  .list li.active, .list li:hover { background: var(--hover); }
+  .list .group { color: var(--muted); font-size: 12px; }
+  .list .empty { color: var(--muted); cursor: default; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+  .row > div:only-child { grid-column: 1 / -1; }
+  .hint { margin-top: 6px; color: var(--muted); font-size: 13px; min-height: 18px; }
+  .actions { margin-top: 14px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .badge { font-weight: 700; }
+  .badge.ok { color: var(--ok); } .badge.err { color: var(--err); }
+  pre {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+    padding: 12px; margin: 10px 0 0; white-space: pre-wrap; word-break: break-word;
+    font: 13px/1.5 ui-monospace, Consolas, monospace; min-height: 60px;
+  }
+  .hidden { display: none !important; }
+  .login { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .login input { flex: 1; min-width: 180px; }
+  @media (max-width: 560px) { .row { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Sterowanie DALI</h1>
+  <div class="muted">Port: <span id="port">…</span></div>
+
+  <section id="loginCard" class="card hidden">
+    <label for="token">Token dostępu</label>
+    <div class="login">
+      <input id="token" type="password" autocomplete="current-password" placeholder="DALI_WEB_TOKEN">
+      <button id="saveToken" class="primary">Zaloguj</button>
+    </div>
+    <div class="hint" id="loginHint"></div>
+  </section>
+
+  <section class="card">
+    <div class="quick">
+      <button data-quick="status">Status</button>
+      <button data-quick="psu-on">Zasilacz ON</button>
+      <button data-quick="psu-off">Zasilacz OFF</button>
+      <button data-quick="scan">Skan magistrali</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <label for="cmd">Funkcja</label>
+    <div class="combo">
+      <input id="cmd" type="text" autocomplete="off"
+             placeholder="Wpisz np. lev, all, psu… (strzałki i Enter)">
+      <ul id="list" class="list hidden" role="listbox"></ul>
+    </div>
+    <div class="hint" id="cmdHint"></div>
+
+    <div class="row">
+      <div id="addrBox" class="hidden">
+        <label for="address">Adres oprawy (0–63)</label>
+        <input id="address" type="number" min="0" max="63" step="1" inputmode="numeric">
+      </div>
+      <div id="valueBox" class="hidden">
+        <label for="value" id="valueLabel">Wartość</label>
+        <input id="value" type="number" min="0" max="254" step="1" inputmode="numeric">
+      </div>
+    </div>
+
+    <div class="actions">
+      <button id="send" class="primary" disabled>Wyślij</button>
+      <span id="status" class="badge"></span>
+    </div>
+    <pre id="output">Wybierz funkcję, aby rozpocząć.</pre>
+  </section>
+</main>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const TOKEN_KEY = "dali_token";
+  let commands = [];
+  let selected = null;
+  let activeIndex = -1;
+  let filtered = [];
+
+  const storage = {
+    get() { try { return localStorage.getItem(TOKEN_KEY) || ""; } catch (e) { return ""; } },
+    set(v) { try { localStorage.setItem(TOKEN_KEY, v); } catch (e) { /* prywatne okno */ } },
+  };
+
+  function headers() {
+    const h = { "Content-Type": "application/json" };
+    const t = storage.get();
+    if (t) h["Authorization"] = "Bearer " + t;
+    return h;
+  }
+
+  async function api(path, options = {}) {
+    const res = await fetch(path, { ...options, headers: headers() });
+    if (res.status === 401) {
+      $("loginCard").classList.remove("hidden");
+      $("loginHint").textContent = "Wymagany token. Wpisz go i zaloguj się.";
+      throw new Error("unauthorized");
+    }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || ("HTTP " + res.status));
+    return data;
+  }
+
+  // --- lista funkcji z podpowiedziami ----------------------------------
+  function matches(query) {
+    const q = query.trim().toLowerCase();
+    if (!q) return commands;
+    return commands.filter(c =>
+      c.id.toLowerCase().includes(q) || c.label.toLowerCase().includes(q) || c.group.toLowerCase().includes(q)
+    );
+  }
+
+  function renderList() {
+    const list = $("list");
+    filtered = matches($("cmd").value);
+    list.innerHTML = "";
+    if (!filtered.length) {
+      const li = document.createElement("li");
+      li.className = "empty";
+      li.textContent = "Brak pasujących funkcji";
+      list.appendChild(li);
+    }
+    filtered.forEach((c, i) => {
+      const li = document.createElement("li");
+      li.setAttribute("role", "option");
+      li.dataset.index = i;
+      if (i === activeIndex) li.classList.add("active");
+      const name = document.createElement("span");
+      name.textContent = c.label;
+      const group = document.createElement("span");
+      group.className = "group";
+      group.textContent = c.group + " · " + c.id;
+      li.append(name, group);
+      li.addEventListener("mousedown", (e) => { e.preventDefault(); choose(c); });
+      list.appendChild(li);
+    });
+    list.classList.remove("hidden");
+  }
+
+  function closeList() {
+    $("list").classList.add("hidden");
+    activeIndex = -1;
+  }
+
+  function choose(cmd) {
+    selected = cmd;
+    $("cmd").value = cmd.label;
+    closeList();
+    showFields();
+  }
+
+  function showFields() {
+    const c = selected;
+    $("addrBox").classList.toggle("hidden", !(c && c.address));
+    $("valueBox").classList.toggle("hidden", !(c && c.value));
+    if (c && c.value) $("valueLabel").textContent = c.value_label || "Wartość";
+    $("cmdHint").textContent = c
+      ? "Wybrano: " + c.id + (c.address ? " · wymaga adresu" : "") + (c.value ? " · wymaga wartości" : "")
+      : "";
+    validate();
+  }
+
+  function validate() {
+    let ok = !!selected;
+    if (selected && selected.address) {
+      const a = $("address").value;
+      ok = ok && a !== "" && Number(a) >= 0 && Number(a) <= 63 && Number.isInteger(Number(a));
+    }
+    if (selected && selected.value) {
+      const v = $("value").value;
+      ok = ok && v !== "" && Number(v) >= 0 && Number(v) <= 254 && Number.isInteger(Number(v));
+    }
+    $("send").disabled = !ok;
+    return ok;
+  }
+
+  $("cmd").addEventListener("input", () => {
+    selected = null;
+    activeIndex = -1;
+    renderList();
+    showFields();
+  });
+  $("cmd").addEventListener("focus", () => { renderList(); });
+  $("cmd").addEventListener("blur", () => setTimeout(closeList, 100));
+  $("cmd").addEventListener("keydown", (e) => {
+    const open = !$("list").classList.contains("hidden");
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      if (!open) renderList();
+      activeIndex = Math.min(activeIndex + 1, filtered.length - 1);
+      renderList();
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      activeIndex = Math.max(activeIndex - 1, 0);
+      renderList();
+    } else if (e.key === "Enter") {
+      // Enter wybiera zaznaczoną podpowiedź, a gdy nic nie zaznaczono, pierwszą z listy.
+      if (open && filtered.length) {
+        e.preventDefault();
+        choose(filtered[activeIndex >= 0 ? activeIndex : 0]);
+      }
+    } else if (e.key === "Escape") {
+      closeList();
+    }
+  });
+
+  ["address", "value"].forEach(id => $(id).addEventListener("input", validate));
+
+  // --- wysyłanie --------------------------------------------------------
+  function setResult(ok, text, lines = []) {
+    const badge = $("status");
+    badge.textContent = ok ? "OK" : "BŁĄD";
+    badge.className = "badge " + (ok ? "ok" : "err");
+    $("output").textContent = [text, ...lines].filter(Boolean).join("\n");
+  }
+
+  async function send(body) {
+    if (!body) return;
+    $("send").disabled = true;
+    $("status").textContent = "wykonuję…";
+    $("status").className = "badge";
+    try {
+      const data = await api("/api/run", { method: "POST", body: JSON.stringify(body) });
+      const lines = [...data.output, ...data.errors];
+      setResult(data.ok, "", lines);
+      if (!lines.length) $("output").textContent = data.ok ? "Gotowe." : "Błąd.";
+    } catch (e) {
+      if (e.message !== "unauthorized") setResult(false, e.message);
+      else $("status").textContent = "";
+    } finally {
+      validate();
+    }
+  }
+
+  $("send").addEventListener("click", () => {
+    if (!selected || !validate()) return;
+    const body = { command: selected.id };
+    if (selected.address) body.address = Number($("address").value);
+    if (selected.value) body.value = Number($("value").value);
+    send(body);
+  });
+
+  document.querySelectorAll("[data-quick]").forEach(btn => {
+    btn.addEventListener("click", () => send({ command: btn.dataset.quick }));
+  });
+
+  // --- logowanie tokenem -------------------------------------------------
+  $("saveToken").addEventListener("click", async () => {
+    storage.set($("token").value.trim());
+    $("loginHint").textContent = "";
+    await init();
+  });
+
+  async function init() {
+    try {
+      const data = await api("/api/commands");
+      commands = data.commands;
+      $("port").textContent = data.port;
+      $("loginCard").classList.add("hidden");
+    } catch (e) {
+      if (e.message !== "unauthorized") $("output").textContent = "Nie udało się pobrać listy funkcji: " + e.message;
+    }
+  }
+
+  init();
+})();
+</script>
+</body>
+</html>

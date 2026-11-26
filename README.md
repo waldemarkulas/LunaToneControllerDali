@@ -143,6 +143,33 @@ python dali_lunatonev2.py --port /dev/ttyUSB0 on --address 0
 
 ---
 
+## 5a. Interfejs webowy
+
+Te same komendy co w CLI, ale w przeglądarce. Funkcję wybierasz z listy z podpowiedziami: wpisz kilka liter (np. `lev`, `all`, `psu`) i wybierz z listy strzałkami albo Enter. Pola adresu i wartości pojawiają się tylko wtedy, gdy są potrzebne. Na górze są szybkie przyciski: Status, Zasilacz ON/OFF, Skan.
+
+Uruchomienie lokalnie (Windows, w venv z zainstalowanymi zależnościami):
+
+```powershell
+$env:DALI_PORT = "COM4"
+python -m uvicorn web_app:app --host 127.0.0.1 --port 8000
+```
+
+Potem w przeglądarce otwórz `http://127.0.0.1:8000`.
+
+Uruchomienie na serwerze (Linux):
+
+```bash
+export DALI_WEB_TOKEN="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
+export DALI_PORT=/dev/ttyUSB0
+uvicorn web_app:app --host 0.0.0.0 --port 8000
+```
+
+Zasady:
+
+- **Port ustawia serwer** (`DALI_PORT`). Przeglądarka nie może wybrać innego portu.
+- **Token:** gdy ustawiona jest `DALI_WEB_TOKEN`, API wymaga logowania tokenem (strona pokazuje formularz). Bez tej zmiennej API jest otwarte, więc taka wersja nie może być dostępna spoza Twojej sieci. Na serwerze zawsze ustaw token, a najlepiej postaw przed aplikacją HTTPS (reverse proxy).
+- Jeden port obsługuje jedno połączenie naraz. Komendy z web są serializowane, a równoległe uruchomienie CLI na tym samym porcie zakończy się błędem.
+
 ## 6. Testy
 
 ### 6a. Testy automatyczne (bez sprzętu)
@@ -220,7 +247,10 @@ Zanotuj wynik każdego kroku. Jeśli któryś nie przejdzie, wklej komendę i pe
 | Plik | Rola |
 |---|---|
 | `dali_lunatonev2.py` | **główne CLI** i klasa `DaliController` (warstwa logiki bez wypisywania) |
+| `web_app.py` | **interfejs webowy** (FastAPI) używający tej samej logiki co CLI |
+| `web/index.html` | strona interfejsu webowego (JS/CSS bez zewnętrznych bibliotek) |
 | `tests/test_dali_cli.py` | testy CLI na atrapie sterownika (bez sprzętu) |
+| `tests/test_web.py` | testy API webowego na atrapie sterownika |
 | `pytest.ini` | pytest uruchamia tylko `tests/` |
 | `requirements.txt` / `requirements-dev.txt` | zależności z przypiętymi wersjami |
 | `test2.py` | raport diagnostyczny adaptera (tylko odczyt) |
