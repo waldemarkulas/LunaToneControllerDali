@@ -29,6 +29,35 @@ MODULE_TITLES = {
     "maintenance": "Konserwacja",
 }
 
+
+# Nazwy wartości z biblioteki -> zrozumiałe opisy po polsku oraz jednostki.
+POLISH_NAMES = {
+    "LastAddress": ("Ostatni adres w banku", ""),
+    "LastMemoryBank": ("Ostatni numer banku w urządzeniu", ""),
+    "GTIN": ("Numer katalogowy producenta (GTIN)", ""),
+    "FirmwareVersion": ("Wersja oprogramowania (firmware)", ""),
+    "IdentificationNumber": ("Numer seryjny urządzenia", ""),
+    "HardwareVersion": ("Wersja sprzętu", ""),
+    "Part101Version": ("Wersja normy IEC 62386-101", ""),
+    "Part102Version": ("Wersja normy IEC 62386-102", ""),
+    "LockByte": ("Blokada zapisu banku", ""),
+    "ManufacturerGTIN": ("Numer katalogowy producenta oprawy (GTIN)", ""),
+    "LuminaireID": ("Numer identyfikacyjny oprawy", ""),
+    "YearOfManufacture": ("Rok produkcji", ""),
+    "WeekOfManufacture": ("Tydzień produkcji", ""),
+    "InputPowerNominal": ("Moc znamionowa", " W"),
+    "InputPowerMinimumDim": ("Moc przy minimalnym ściemnianiu", " W"),
+    "MainsVoltageMinimum": ("Minimalne napięcie sieci", " V"),
+    "MainsVoltageMaximum": ("Maksymalne napięcie sieci", " V"),
+    "LightOutputNominal": ("Strumień świetlny znamionowy", " lm"),
+    "CRI": ("Wskaźnik oddawania barw (CRI)", ""),
+    "CCT": ("Temperatura barwowa", " K"),
+    "LuminaireColor": ("Kolor oprawy", ""),
+    "DeviceUnitCount": ("Liczba jednostek sterujących", ""),
+    "GearUnitCount": ("Liczba jednostek oprawy", ""),
+    "UnitIndex": ("Indeks jednostki", ""),
+}
+
 _MODULES = [_info, _oem, _energy, _diagnostics, _emergency, _maintenance]
 
 _registry_cache = None
@@ -111,6 +140,61 @@ def _hexdump(data: list, width: int = 16) -> list[str]:
     return lines
 
 
+def explain_scan(address: int, identity: dict, adapter: dict | None, banks: list[dict],
+                 last_bank) -> list[str]:
+    """
+    Tłumaczenie wyniku skanu na zwykły język. Zwraca akapity (puste linie
+    oddzielają akapity, linie zaczynające się od '  • ' są punktami).
+    """
+    existing = [b for b in banks if b["exists"]]
+    lines = [
+        f"Oprawa o adresie {address} odpowiedziała. Ma {len(existing)} z {len(banks)} "
+        f"banków pamięci (ostatni bank ma numer {last_bank}).",
+        "",
+    ]
+
+    lines.append("Identyfikacja oprawy:")
+    if identity.get("gtin") is not None and not str(identity["gtin"]).startswith("ERROR"):
+        lines.append(f"  • Numer katalogowy producenta (GTIN): {identity['gtin']}")
+    if identity.get("serial") is not None and not str(identity["serial"]).startswith("ERROR"):
+        lines.append(f"  • Numer seryjny: {identity['serial']}. "
+                     "Razem z GTIN jednoznacznie wskazuje to urządzenie.")
+    if identity.get("firmware") is not None and not str(identity["firmware"]).startswith("ERROR"):
+        lines.append(f"  • Wersja oprogramowania: {identity['firmware']}")
+    if adapter and adapter.get("article_num"):
+        lines.append(f"  • Interfejs (adapter Lunatone): artykuł {adapter['article_num']}")
+
+    for bank in banks:
+        lines.append("")
+        n, title = bank["number"], bank["title"]
+        if not bank["exists"]:
+            lines.append(f"Bank {n}: w tej oprawie nie istnieje.")
+            continue
+        if bank["data"] is None or isinstance(bank["data"], str):
+            lines.append(f"Bank {n}: nie udało się go odczytać ({bank['data']}).")
+            continue
+
+        data = bank["data"]
+        missing = sum(1 for b in data if b is None)
+        lines.append(f"Bank {n} - {title}: {len(data)} pól danych"
+                     + (f", z czego {missing} nie odpowiedziało (pole nieobsługiwane przez oprawę)."
+                        if missing else "."))
+        known = []
+        for row in bank["rows"]:
+            if row["status"] != "ok" or row["value"] is None:
+                continue
+            label, unit = POLISH_NAMES.get(row["name"], (row["name"], ""))
+            known.append(f"  • {label}: {row['value']}{unit}")
+        if known:
+            lines += known
+        elif n == 0:
+            lines.append("  Brak rozpoznanych wartości w tym banku.")
+        else:
+            lines.append("  Biblioteka nie zna opisu tych danych. Są to dane producenta "
+                         "w surowej postaci. Bez jego dokumentacji nie da się ich odczytać.")
+    return lines
+
+
 def format_report(address: int, identity: dict, adapter: dict | None, banks: list[dict],
                   last_bank, when: datetime | None = None) -> list[str]:
     """Raport tekstowy: linie gotowe do wypisania albo zapisania do pliku."""
@@ -123,7 +207,14 @@ def format_report(address: int, identity: dict, adapter: dict | None, banks: lis
         f"Data skanu            : {when:%Y-%m-%d %H:%M:%S}",
         f"Adres oprawy          : {address}",
         "",
-        "--- ID ADAPTERA (LUBA) ---",
+        "--- PO LUDZKU ---",
+    ]
+    out += explain_scan(address, identity, adapter, banks, last_bank)
+    out += [
+        "",
+        "--- SZCZEGÓŁY TECHNICZNE ---",
+        "",
+        "ID ADAPTERA (LUBA)",
     ]
     if adapter:
         out += [
